@@ -1,15 +1,16 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DKDB
 {
     public abstract class DKDBConfig : IDisposable
     {
+        public string databaseFolderPath { get; set; }
+
+        public DKDBConfig(string databaseFolderPath)
+        {
+            this.databaseFolderPath = databaseFolderPath;
+        }
+
         public void Dispose()
         {
             GC.Collect();
