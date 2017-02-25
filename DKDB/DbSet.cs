@@ -16,6 +16,10 @@ namespace DKDB
 
         #region CRUD
 
+        /// <summary>
+        /// Adds given record to the buffer.
+        /// </summary>
+        /// <param name="record">Record to add</param>
         public void Add(T record)
         {
             recordsToAdd.Add(record);
