@@ -40,8 +40,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DbContext.cs" />
     <Compile Include="DbSet.cs" />
     <Compile Include="DKDBConfig.cs" />
+    <Compile Include="DKDBCustomAttributes.cs" />
+    <Compile Include="FileOps.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
