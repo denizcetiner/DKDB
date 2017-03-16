@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace DKDB
 {
@@ -93,7 +94,7 @@ namespace DKDB
 
         public int SaveChanges()
         {
-
+            return 0;
         }
     }
 }
