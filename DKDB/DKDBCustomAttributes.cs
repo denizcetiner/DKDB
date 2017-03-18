@@ -43,21 +43,30 @@ namespace DKDB
             return RefPropTypes;
         }
 
+        public static Attribute GetAttribute(Type t, PropertyInfo info)
+        {
+            return info.GetCustomAttribute(t);
+        }
+
+        public static int GetLength(PropertyInfo info)
+        {
+            DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
+            return attr.Length;
+        }
+
         public static bool Validator(object o)
         {
             PropertyInfo[] infos = o.GetType().GetProperties();
             foreach (PropertyInfo info in infos)
             {
-                var attrs = (DKDBCustomAttributes.DKDBMaxLengthAttribute[])info.GetCustomAttributes(
-                    typeof(DKDBCustomAttributes.DKDBMaxLengthAttribute), false);
-                foreach (var attr in attrs)
+                DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
+
+                Type t = info.PropertyType;
+                if (attr.Length < ((String)(info.GetValue(o))).Length)
                 {
-                    Type t = info.PropertyType;
-                    if (attr.Length < ((String)(info.GetValue(o))).Length)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
+
             }
             return true;
         }
