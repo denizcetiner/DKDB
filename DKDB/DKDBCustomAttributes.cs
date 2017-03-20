@@ -9,40 +9,6 @@ namespace DKDB
 {
     public class DKDBCustomAttributes
     {
-        public static List<PropertyInfo> GetReferencePropertyList(Type T, List<Type> ReferenceChecklist)
-        {
-            List<PropertyInfo> ReferencePropertyList = new List<PropertyInfo>();
-
-            PropertyInfo[] infos = T.GetProperties();
-            foreach (PropertyInfo info in infos)
-            {
-                if (ReferenceChecklist.Contains(info.GetType()))
-                {
-                    ReferencePropertyList.Add(info);
-                }
-            }
-
-            return ReferencePropertyList;
-        }
-
-        public static List<Type> GetReferenceChecklist(object DbContext)
-        {
-            List<Type> RefPropTypes = new List<Type>();
-
-            PropertyInfo[] infos = DbContext.GetType().GetProperties();
-            foreach (PropertyInfo info in infos)
-            {
-                //Console.WriteLine(info.PropertyType.Name.ToString());
-                if (info.PropertyType.Name.ToString().Contains("DbSet"))
-                {
-                    Console.WriteLine(info.PropertyType.GetGenericArguments()[0].Name);
-                    RefPropTypes.Add(info.PropertyType.GetGenericArguments()[0]);
-                }
-            }
-
-            return RefPropTypes;
-        }
-
         public static Attribute GetAttribute(Type t, PropertyInfo info)
         {
             return info.GetCustomAttribute(t);
@@ -62,7 +28,7 @@ namespace DKDB
                 DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
 
                 Type t = info.PropertyType;
-                if (attr.Length < ((String)(info.GetValue(o))).Length)
+                if (attr != null && attr.Length < ((String)(info.GetValue(o))).Length)
                 {
                     return false;
                 }

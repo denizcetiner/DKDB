@@ -10,6 +10,7 @@ namespace DKDB
 {
     public class DbContext
     {
+        public String DatabaseFolder = @"C:\Deneme";
         public String EndingChars = "/()=";
         public List<Type> dbsetTypes = new List<Type>();
         public List<object> dbsets = new List<object>();
@@ -40,6 +41,12 @@ namespace DKDB
                 //String propTypeNameString = info.PropertyType.Name.ToString();
                 if (info.PropertyType.Name.ToString().Contains("DbSet"))
                 {
+                    Type d1 = typeof(DbSet<>);
+                    Type[] typeArgs = { info.PropertyType.GetGenericArguments()[0] };
+                    Type constructed = d1.MakeGenericType(typeArgs);
+                    object[] parameters = { this };
+                    object dbset = Activator.CreateInstance(constructed, parameters);
+                    info.SetValue(this, dbset);
                     dbsets.Add(info.GetValue(this));
                 }
             }
@@ -77,23 +84,35 @@ namespace DKDB
             }
         }
 
+        public void InitDbSetProps()
+        {
+            foreach(object dbset in dbsets)
+            {
+                dbset.GetType().GetProperty("ctx").SetValue(dbset, this);
+            }
+        }
+
+        public DbContext ()
+        {
+            initSetTypes();
+            initDbSetList();
+            InitDbSetProps();
+            
+        }
+
         public int SaveChanges()
         {
             bool result = false;
-            object[] params1 = { "AddDirectly" };
-            object[] params2 = { "AddAsChild" };
-            object[] params3 = { "Update" };
-            object[] params4 = { "Remove" };
+            object[] params1 = { "AddDirectly".ToCharArray() };
+            object[] params2 = { "AddChilds".ToCharArray() };
+            object[] params3 = { "Update".ToCharArray() };
+            object[] params4 = { "Remove".ToCharArray() };
             object[][] parameters = { params1, params2, params3, params4 };
             foreach (object[] parameter in parameters)
             {
                 foreach (object o in dbsets)
                 {
-                    //Type d1 = typeof(DbSet<>);
-                    //Type[] typeArgs = { info.PropertyType };
-                    //Type constructed = d1.MakeGenericType(typeArgs);
                     MethodInfo method = o.GetType().GetMethod("SaveChanges");
-
                     result = (bool)method.Invoke(o, parameter);
                 }
             }

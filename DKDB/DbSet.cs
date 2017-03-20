@@ -6,7 +6,7 @@ using System.Reflection;
 
 namespace DKDB
 {
-    public abstract class DbSet<T>
+    public class DbSet<T>
     {
         private Stream mainFile; //Stream access 
         private Stream metaFile;
@@ -70,16 +70,34 @@ namespace DKDB
             recordsToAddAsChild.Add(new Tuple<object, object>(owner, record));
         }
 
+        public void CreateFilesIfNotExist()
+        {
+            if(!File.Exists(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat")))
+            {
+                mainFile = File.Create(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
+                mainFile.Close();
+            }
+            if(!File.Exists(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat")))
+            {
+                metaFile = File.Create(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
+                metaFile.Close();
+            }
+            OpenMetaWrite();
+            FileOps.CreateMetaFile(metaFile, this.GetType().GetGenericArguments()[0]);
+            metaFile.Close();
+        }
+
         /// <summary>
         /// Compares the properties of the dbset type with other dbset types, to create a list of custominfos.
         /// </summary>
         public void SetInfos()
         {
-            var checklist = DKDBCustomAttributes.GetReferenceChecklist(ctx);
-            List<PropertyInfo> infos = DKDBCustomAttributes.GetReferencePropertyList(typeof(T), checklist);
+            List<Type> checklist = ctx.dbsetTypes;
+            List<PropertyInfo> infos = typeof(T).GetProperties().ToList();
 
             foreach (PropertyInfo info in infos)
             {
+                //notmapped kontrolü de eklenecek
                 if (!checklist.Contains(info.PropertyType))
                 {
                     primitiveInfos.Add(info);
@@ -88,8 +106,35 @@ namespace DKDB
                 {
                     customInfos.Add(info);
                 }
-
             }
+            OpenMetaRead();
+            List<Tuple<String,String>> PropsAndNames = FileOps.ReadMetaFilePropertiesAndNames(metaFile);
+            metaFile.Close();
+
+            foreach (Tuple<String,String> pair in PropsAndNames)
+            {
+                for(int i=0;i<primitiveInfos.Count;i++)
+                {
+                    if(pair.Item2 == primitiveInfos[i].Name)
+                    {
+                        orderedInfos.Add(primitiveInfos[i]);
+                    }
+                }
+                for (int i = 0; i < customInfos.Count; i++)
+                {
+                    if (pair.Item2 == customInfos[i].Name)
+                    {
+                        orderedInfos.Add(customInfos[i]);
+                    }
+                }
+            }
+        }
+
+        public DbSet(DbContext ctx)
+        {
+            this.ctx = ctx;
+            CreateFilesIfNotExist();
+            SetInfos();
         }
 
         #region CRUD
@@ -104,7 +149,7 @@ namespace DKDB
             {
                 foreach (PropertyInfo info in record.GetType().GetProperties())
                 {
-                    if (ctx.dbsetTypes.Contains(info.GetType()))
+                    if (ctx.dbsetTypes.Contains(info.PropertyType))
                     {
                         object childObject = info.GetValue(record);
                         if (childObject != null)
@@ -113,7 +158,7 @@ namespace DKDB
                             if (childObjectId == 0)
                             {
                                 object dbset = ctx.GetDBSetByType(childObject.GetType());
-                                object[] parameters = { new Tuple<object, object>(record, childObject) };
+                                object[] parameters = { record, childObject };
                                 dbset.GetType().GetMethod("AddAsChild").Invoke(dbset, parameters);
                             }
                         }
@@ -123,9 +168,34 @@ namespace DKDB
                 }
             }
 
-
             recordsToAddDirectly.Add(record);
         }
+
+        #region stream openers
+
+        public void OpenMainRead()
+        {
+            mainFile = File.OpenRead(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
+        }
+
+        public void OpenMainWrite()
+        {
+            mainFile = File.OpenWrite(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
+        }
+
+        public void OpenMetaRead()
+        {
+            metaFile = File.OpenRead(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
+        }
+
+        public void OpenMetaWrite()
+        {
+            metaFile = File.OpenWrite(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
+        }
+
+        #endregion
+        
+        
         
 
         public void AddRange(IEnumerable<T> records)
@@ -291,23 +361,27 @@ namespace DKDB
         /// Completes some of the changes in the dbset chosen by the command.
         /// </summary>
         /// <param name="command">AddDirectly, AddChilds, Update, Remove</param>
-        public bool SaveChanges(String command)
+        public bool SaveChanges(char[] com)
         {
+            String command = new string(com);
             bool result = false;
             if (command == "AddDirectly")
             {
                 //0'dakiler ile işlem yapma nedeni:
                 //Bir ekleme işlemi yapılırken, içinde çocuk nesne var ise, bir şekilde üzerinde çalışılan
                 //listenin sonuna yeni kayıt eklenmesine neden olabilir. mi? düşün
+                OpenMainWrite();
                 while (recordsToAddDirectly.Count() != 0)
                 {
                     result = true;
                     FileOps.Add(mainFile, removedIndexes, customInfos, primitiveInfos, orderedInfos, recordsToAddDirectly[0]);
-                    recordsToAddAsChild.RemoveAt(0);
+                    recordsToAddDirectly.RemoveAt(0);
                 }
+                mainFile.Close();
             }
             if (command == "AddChilds")
             {
+                OpenMainWrite();
                 while (recordsToAddAsChild.Count() != 0)
                 {
                     result = true;
@@ -323,9 +397,11 @@ namespace DKDB
                     ownerDbSet.GetType().GetMethod("Update").Invoke(ownerDbSet, parameters);
                     recordsToAddAsChild.RemoveAt(0);
                 }
+                mainFile.Close();
             }
             if (command == "Update")
             {
+                OpenMainWrite();
                 while (Updates.Count() != 0)
                 {
                     result = true;
@@ -339,15 +415,20 @@ namespace DKDB
                     #endregion
                     T record = Updates[0];
                     FileOps.Overwrite(mainFile, customInfos, primitiveInfos, orderedInfos, record);
+                    Updates.RemoveAt(0);
                 }
+                mainFile.Close();
             }
             if (command == "Remove")
             {
+                OpenMainWrite();
                 while (recordsToRemove.Count() != 0)
                 {
                     result = true;
                     FileOps.Remove(mainFile, customInfos, primitiveInfos, orderedInfos, metaFile, recordsToRemove[0]);
+                    recordsToRemove.RemoveAt(0);
                 }
+                mainFile.Close();
             }
             //
             return result;
@@ -388,7 +469,7 @@ namespace DKDB
             return (T)fillingLog.Item1;
 
         }
-
+        
 
     }
 }

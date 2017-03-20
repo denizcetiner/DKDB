@@ -29,41 +29,80 @@ namespace DKDB
                 Overwrite(mainFile, customInfos, primitiveInfos, orderedInfos, record);
                 return indexToBeInserted;
             }
-            indexToBeInserted = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
-            int sizeOfRow = -1; //hesapla
-            mainFile.Position = sizeOfRow * indexToBeInserted; //gerekirse düzelt
+            indexToBeInserted = 0;
+            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //hesapla
+            mainFile.Position = mainFile.Length / sizeOfRow; //gerekirse düzelt
             BinaryWriter bw = new BinaryWriter(mainFile);
-            foreach(PropertyInfo primitiveInfo in primitiveInfos)
+            foreach(PropertyInfo info in orderedInfos)
             {
-                Write(bw, primitiveInfo, primitiveInfo.GetValue(record));
-            }
-            foreach(PropertyInfo customInfo in customInfos)
-            {
-                int id;
-                object child = customInfo.GetValue(record);
-                if(child == null)
+                if (primitiveInfos.Contains(info))
                 {
-                    id = -1;
+                    Write(bw, info,info.GetValue(record));
                 }
-                else
+                if (customInfos.Contains(info))
                 {
-                    id = (int)customInfo.GetValue(record).GetType().GetProperty("id").GetValue(customInfo.GetValue(record));
+                    int id;
+                    object child = info.GetValue(record);
+                    if (child == null)
+                    {
+                        id = -1;
+                    }
+                    else
+                    {
+                        id = (int)info.GetValue(record).GetType().GetProperty("id").GetValue(info.GetValue(record));
+                    }
+
+                    bw.Write(id);
                 }
-                
-                bw.Write(id);
             }
+            
 
             return indexToBeInserted;//id dönecek
         }
 
         public static void CreateMetaFile(Stream metaFile, Type t)
         {
-            
+            BinaryWriter bw = new BinaryWriter(metaFile);
+            foreach (PropertyInfo info in t.GetProperties())
+            {
+                bw.Write(info.PropertyType.ToString());
+                bw.Write(info.Name);
+            }
+            bw.Write("Removed indexes:");
         }
 
-        public static void ReadMetaFile(Stream metaFile, ref List<PropertyInfo> orderedInfos, ref List<int> removedIndexes)
+        public static List<Tuple<String,String>> ReadMetaFilePropertiesAndNames(Stream metaFile)
         {
+            metaFile.Position = 0;
+            List<Tuple<String, String>> propsAndNames = new List<Tuple<string, string>>();
+            BinaryReader br = new BinaryReader(metaFile);
+            String s = br.ReadString();
+            while(s != "Removed indexes:")
+            {
+                String prop = String.Copy(s);
+                String name = br.ReadString();
+                Tuple<String, String> propAndName = new Tuple<string, string>(prop,name);
+                propsAndNames.Add(propAndName);
+                s = br.ReadString();
+            }
+            return propsAndNames;
+        }
 
+        public static List<int> ReadMetaFileRemovedIndexes(Stream metaFile)
+        {
+            metaFile.Position = 0;
+            List<int> removedIndexes = new List<int>();
+            BinaryReader br = new BinaryReader(metaFile);
+            String s = br.ReadString();
+            while (s != "Removed indexes:")
+            {
+                s = br.ReadString();
+            }
+            while (br.BaseStream.Position != br.BaseStream.Length)
+            {
+                removedIndexes.Add(br.ReadInt32());
+            }
+            return removedIndexes;
         }
 
         public static void UpdateRemovedIndexes(Stream metaFile, List<int> removedIndexes)
@@ -77,11 +116,11 @@ namespace DKDB
             total += sizeof(int); //id
             foreach(PropertyInfo info in infos)
             {
-                if(customInfos.Contains(info))
+                if (customInfos.Contains(info))
                 {
                     total += sizeof(int);
                 }
-                else if(info.PropertyType is String)
+                else if (info.PropertyType == typeof(String))
                 {
                     total += DKDBCustomAttributes.GetLength(info)+filler.Length;
                 }
@@ -115,7 +154,7 @@ namespace DKDB
                     = (DKDBCustomAttributes.DKDBMaxLengthAttribute)
                     DKDBCustomAttributes.GetAttribute(typeof(DKDBCustomAttributes.DKDBMaxLengthAttribute), info);
 
-                return RemoveFiller(br.ReadChars(lengthAttr.Length + filler.Length).ToString(),filler);
+                return RemoveFiller(new string(br.ReadChars(lengthAttr.Length + filler.Length)),filler);
             }
             else if (t == typeof(bool))
             {
@@ -127,7 +166,7 @@ namespace DKDB
             }
             else if (t == typeof(DateTime))
             {
-                return DateTime.Parse(br.ReadChars(10).ToString());
+                return DateTime.Parse(new string(br.ReadChars(10)));
             }
             return null; //exception
         }
@@ -140,7 +179,7 @@ namespace DKDB
         /// <param name="o">The object the info belongs to.</param>
         public static void Write(BinaryWriter bw, PropertyInfo info, object o)
         {
-            object value = info.GetValue(o);
+            object value = o;
             Type t = info.PropertyType;
             if(t == typeof(String))
             {
@@ -223,7 +262,7 @@ namespace DKDB
         public static String FillString(String original, String filler,int OriginalLengthLimit)
         {
             String result = original + filler;
-            for(int i=0; i< (OriginalLengthLimit+filler.Length)-result.Length;i++)
+            while(result.Length < OriginalLengthLimit + filler.Length)
             {
                 result += "0";
             }
