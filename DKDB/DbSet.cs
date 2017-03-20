@@ -8,6 +8,8 @@ namespace DKDB
 {
     public class DbSet<T>
     {
+        #region properties and fields
+
         private Stream mainFile; //Stream access 
         private Stream metaFile;
         private List<int> removedIndexes = new List<int>();
@@ -35,6 +37,8 @@ namespace DKDB
         //object=nesne referansı okunup doldurulacak nesne.
         //propertyinfo=doldurulacak property
         //referansın id'si
+
+        #endregion
 
         /// <summary>
         /// Adds a record that is a child of another record.
@@ -68,6 +72,12 @@ namespace DKDB
                 }
             }
             recordsToAddAsChild.Add(new Tuple<object, object>(owner, record));
+        }
+
+        //id'si int olan nesne okunacak, object'in property'sine atanacak.
+        public void AddAsFilled(Tuple<object, PropertyInfo, int> RecordToBeFilled)
+        {
+            this.RecordsToBeFilled.Add(RecordToBeFilled);
         }
 
         public void CreateFilesIfNotExist()
@@ -137,7 +147,7 @@ namespace DKDB
             SetInfos();
         }
 
-        #region CRUD
+        
 
         /// <summary>
         /// Adds given record to the buffer.
@@ -194,9 +204,14 @@ namespace DKDB
         }
 
         #endregion
-        
-        
-        
+
+
+        #region boş şimdilik, temel şeyler değil
+
+        public void UpdateRange(IEnumerable<T> records)
+        {
+
+        }
 
         public void AddRange(IEnumerable<T> records)
         {
@@ -211,6 +226,36 @@ namespace DKDB
         public void RemoveRange(IEnumerable<T> records)
         {
 
+        }
+
+        public long Count()
+        {
+            ReadAllRecords();
+            return allRecords.LongCount();
+        }
+
+        public T Last()
+        {
+            ReadAllRecords();
+            return allRecords.Last();
+        }
+
+        public T First(Func<T, bool> predicate)
+        {
+            ReadAllRecords();
+            return allRecords.First(predicate);
+        }
+
+        public IEnumerable<T> Where(Func<T, bool> predicate)
+        {
+            ReadAllRecords();
+            return allRecords.Where(predicate);
+        }
+
+        public List<T> All()
+        {
+            ReadAllRecords();
+            return allRecords;
         }
 
         //public void Update(T record)
@@ -256,6 +301,8 @@ namespace DKDB
         //    }
         //}
 
+        #endregion
+
         /// <summary>
         /// Given record will be updated.
         /// </summary>
@@ -285,16 +332,13 @@ namespace DKDB
             }
         }
 
-        public void UpdateRange(IEnumerable<T> records)
-        {
-
-        }
+        
 
         /// <summary>
         /// Completes the child assignment requests ordered by the parent objects.
         /// </summary>
         /// <returns>Returns value to be used by DbContext wrapper function "FillOthers".</returns>
-        private bool FillOtherDbSetRecords()
+        public bool FillOtherDbSetRecords()
         {
             bool result = false;
             while (RecordsToBeFilled.Count() != 0)
@@ -302,8 +346,12 @@ namespace DKDB
                 result = true;
                 //doldur
                 Tuple<object, PropertyInfo, int> log = RecordsToBeFilled[0];
-                log.Item2.SetValue(log.Item1, Read(log.Item3));
+                PropertyInfo info = log.Item2;
+                object target = log.Item1;
+                int fkid = log.Item3;
                 RecordsToBeFilled.RemoveAt(0);
+                log.Item2.SetValue(log.Item1, Read(log.Item3));
+                
             }
             return result;
         }
@@ -320,42 +368,8 @@ namespace DKDB
                 }
             }
         }
-
-        #endregion
-
-        #region Read
-
-        public long Count()
-        {
-            ReadAllRecords();
-            return allRecords.LongCount();
-        }
-
-        public T Last()
-        {
-            ReadAllRecords();
-            return allRecords.Last();
-        }
-
-        public T First(Func<T, bool> predicate)
-        {
-            ReadAllRecords();
-            return allRecords.First(predicate);
-        }
-
-        public IEnumerable<T> Where(Func<T, bool> predicate)
-        {
-            ReadAllRecords();
-            return allRecords.Where(predicate);
-        }
-
-        public List<T> All()
-        {
-            ReadAllRecords();
-            return allRecords;
-        }
-
-        #endregion
+        
+        
 
         /// <summary>
         /// Completes some of the changes in the dbset chosen by the command.
@@ -445,7 +459,7 @@ namespace DKDB
         {
             if(!CameByAllFunction)
             {
-                mainFile = File.OpenRead("asdf");
+                OpenMainRead();
             } //else, the stream should be already opened before.
             Tuple<object, Dictionary<PropertyInfo, int>> fillingLog;
             //object = the record that it's childs will be read and assigned to.
@@ -458,7 +472,7 @@ namespace DKDB
                 object[] parameters = { kp.Value };
                 Tuple<object, PropertyInfo, int> RecordToBeFilled = new Tuple<object, PropertyInfo, int>(fillingLog.Item1, kp.Key, kp.Value);
                 object[] parameters2 = { RecordToBeFilled };
-                dbset.GetType().GetProperty("RecordsToBeFilled").GetType().GetMethod("Add").Invoke(dbset.GetType().GetProperty("RecordsToBeFilled"), parameters2);
+                dbset.GetType().GetMethod("AddAsFilled").Invoke(dbset, parameters2);
                 
             }
             if (!CameByAllFunction)

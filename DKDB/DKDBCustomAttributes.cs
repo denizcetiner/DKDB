@@ -17,7 +17,7 @@ namespace DKDB
         public static int GetLength(PropertyInfo info)
         {
             DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
-            return attr.Length;
+            return attr.MaxLength;
         }
 
         public static bool Validator(object o)
@@ -28,7 +28,7 @@ namespace DKDB
                 DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
 
                 Type t = info.PropertyType;
-                if (attr != null && attr.Length < ((String)(info.GetValue(o))).Length)
+                if (attr != null && attr.MaxLength < ((String)(info.GetValue(o))).Length)
                 {
                     return false;
                 }
@@ -43,7 +43,7 @@ namespace DKDB
         [AttributeUsage(AttributeTargets.Property)]
         public class DKDBMaxLengthAttribute : Attribute
         {
-            public int Length { get; set; }
+            public int MaxLength { get; set; }
         }
     }
 }

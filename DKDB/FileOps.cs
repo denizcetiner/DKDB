@@ -22,37 +22,42 @@ namespace DKDB
         /// <returns>Returns the id of last inserted record</returns>
         public static int Add(Stream mainFile, List<int> removedIndexes, List<PropertyInfo> customInfos, List<PropertyInfo> primitiveInfos, List<PropertyInfo> orderedInfos, object record)
         {
-            int indexToBeInserted;
+            int indexToBeInserted = -1;
             if (removedIndexes.Count()>0)
             {
                 indexToBeInserted = removedIndexes[0];
                 Overwrite(mainFile, customInfos, primitiveInfos, orderedInfos, record);
                 return indexToBeInserted;
             }
-            indexToBeInserted = 0;
-            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //hesapla
-            mainFile.Position = mainFile.Length / sizeOfRow; //gerekirse düzelt
+            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //byte size of a row
+            mainFile.Position = (mainFile.Length / sizeOfRow) * ((indexToBeInserted==-1) ? sizeOfRow : indexToBeInserted); //
+            indexToBeInserted = Convert.ToInt32(mainFile.Position / sizeOfRow) + 1; 
             BinaryWriter bw = new BinaryWriter(mainFile);
             foreach(PropertyInfo info in orderedInfos)
             {
                 if (primitiveInfos.Contains(info))
-                {
-                    Write(bw, info,info.GetValue(record));
-                }
-                if (customInfos.Contains(info))
-                {
-                    int id;
-                    object child = info.GetValue(record);
-                    if (child == null)
+                    if (info.Name == "id")
                     {
-                        id = -1;
+                        Write(bw, info, indexToBeInserted);
                     }
                     else
                     {
-                        id = (int)info.GetValue(record).GetType().GetProperty("id").GetValue(info.GetValue(record));
+                        Write(bw, info, info.GetValue(record));
+                    }
+                if (customInfos.Contains(info))
+                {
+                    int fk_id;
+                    object child = info.GetValue(record);
+                    if (child == null)
+                    {
+                        fk_id = -1;
+                    }
+                    else
+                    {
+                        fk_id = (int)info.GetValue(record).GetType().GetProperty("id").GetValue(info.GetValue(record));
                     }
 
-                    bw.Write(id);
+                    bw.Write(fk_id);
                 }
             }
             
@@ -154,7 +159,7 @@ namespace DKDB
                     = (DKDBCustomAttributes.DKDBMaxLengthAttribute)
                     DKDBCustomAttributes.GetAttribute(typeof(DKDBCustomAttributes.DKDBMaxLengthAttribute), info);
 
-                return RemoveFiller(new string(br.ReadChars(lengthAttr.Length + filler.Length)),filler);
+                return RemoveFiller(new string(br.ReadChars(lengthAttr.MaxLength + filler.Length)),filler);
             }
             else if (t == typeof(bool))
             {
@@ -183,8 +188,7 @@ namespace DKDB
             Type t = info.PropertyType;
             if(t == typeof(String))
             {
-                
-                bw.Write(FillString((String)value, filler, DKDBCustomAttributes.GetLength(info)));
+                bw.Write(FillString((String)value, filler, DKDBCustomAttributes.GetLength(info)).ToCharArray());
             }
             else if(t == typeof(bool))
             {

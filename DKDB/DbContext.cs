@@ -33,6 +33,7 @@ namespace DKDB
             }
         }
 
+        //Creates instances for null DbSet properties
         public void initDbSetList()
         {
             PropertyInfo[] infos = this.GetType().GetProperties();
@@ -71,11 +72,11 @@ namespace DKDB
         /// </summary>
         public void FillOthers()
         {
-            bool result = false;
+            bool result = true;
             //referansları doldur.
-            foreach (object o in dbsets)
+            foreach (object dbset in dbsets)
             {
-                result |= (bool)o.GetType().GetMethod("FillOtherDbSetRecords").Invoke(o, null);
+                result &= (bool)dbset.GetType().GetMethod("FillOtherDbSetRecords").Invoke(dbset, null);
             }
             if (result)
             {
@@ -84,6 +85,9 @@ namespace DKDB
             }
         }
 
+        /// <summary>
+        /// Assigns this DbContext to the ctx property of all dbsets, for easier access and message sending from dbset to dbcontext
+        /// </summary>
         public void InitDbSetProps()
         {
             foreach(object dbset in dbsets)
@@ -92,11 +96,12 @@ namespace DKDB
             }
         }
 
+
         public DbContext ()
         {
-            initSetTypes();
-            initDbSetList();
-            InitDbSetProps();
+            initSetTypes(); //Creates the list of the DbSet Generic Parameter types
+            initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
+            InitDbSetProps(); //
             
         }
 
@@ -116,7 +121,7 @@ namespace DKDB
                     result = (bool)method.Invoke(o, parameter);
                 }
             }
-            if(result)
+            if(result) //if any changes happened, they may have triggered new changes.
             {
                 SaveChanges();
             }
