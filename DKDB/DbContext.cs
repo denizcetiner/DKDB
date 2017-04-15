@@ -16,6 +16,58 @@ namespace DKDB
         public List<object> dbsets = new List<object>();
         //public List<TransactionRecord> transactionRecords = new List<TransactionRecord>();
 
+
+        //Returns a specific DbSet for easier access
+        public object GetDBSetByType(Type t)
+        {
+            foreach (object o in dbsets)
+            {
+                Type t3 = o.GetType().GetGenericArguments()[0];
+                if (t == t3)
+                {
+                    return o;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Fills the child objects of the read records.
+        /// </summary>
+        public void FillOthers()
+        {
+            bool result = true;
+            //referansları doldur.
+            foreach (object dbset in dbsets)
+            {
+                result &= (bool)dbset.GetType().GetMethod("FillOtherDbSetRecords").Invoke(dbset, null);
+            }
+            if (result)
+            {
+                FillOthers(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
+                //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
+            }
+        }
+
+
+        #region constructor related
+
+        public DbContext(String DatabaseFolder) : this()
+        {
+            this.DatabaseFolder = DatabaseFolder;
+
+        }
+
+        public DbContext ()
+        {
+            initSetTypes(); //Creates the list of the DbSet Generic Parameter types
+            initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
+            InitDbSetProps(); //
+            
+        }
+
+        
+
         /// <summary>
         /// Fills the DbSet type list "dbsetTypes" for easier use if needed
         /// </summary>
@@ -53,57 +105,18 @@ namespace DKDB
             }
         }
 
-        //Returns a specific DbSet for easier access
-        public object GetDBSetByType(Type t)
-        {
-            foreach (object o in dbsets)
-            {
-                Type t3 = o.GetType().GetGenericArguments()[0];
-                if (t == t3)
-                {
-                    return o;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Fills the child objects of the read records.
-        /// </summary>
-        public void FillOthers()
-        {
-            bool result = true;
-            //referansları doldur.
-            foreach (object dbset in dbsets)
-            {
-                result &= (bool)dbset.GetType().GetMethod("FillOtherDbSetRecords").Invoke(dbset, null);
-            }
-            if (result)
-            {
-                FillOthers(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
-                //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
-            }
-        }
-
         /// <summary>
         /// Assigns this DbContext to the ctx property of all dbsets, for easier access and message sending from dbset to dbcontext
         /// </summary>
         public void InitDbSetProps()
         {
-            foreach(object dbset in dbsets)
+            foreach (object dbset in dbsets)
             {
                 dbset.GetType().GetProperty("ctx").SetValue(dbset, this);
             }
         }
 
-
-        public DbContext ()
-        {
-            initSetTypes(); //Creates the list of the DbSet Generic Parameter types
-            initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
-            InitDbSetProps(); //
-            
-        }
+        #endregion
 
         public int SaveChanges()
         {

@@ -10,25 +10,37 @@ namespace DKDB
     {
         #region properties and fields
 
-        private Stream mainFile; //Stream access 
-        private Stream metaFile;
-        private List<int> removedIndexes = new List<int>();
+        private Stream mainFile; //Main file's stream access. Assigned automatically while the DbSet is being constructed.
+        private Stream metaFile; //Meta file's stream access. Assigned automatically while the DbSet is being constructed.
+        private List<int> removedIndexes = new List<int>(); //not yet
 
         public DbContext ctx { get; set; } //To access if needed, like getting the types of other DbSet types in DbContext
 
         //Dictionary<T, Dictionary<PropertyInfo, object>> Updates = new Dictionary<T, Dictionary<PropertyInfo, object>>();
         public List<T> Updates = new List<T>();
+        //Presumed the primary key(currently only 'id') is never changed:
+        //During the SaveChanges operation; out-of-date record is located by the id, and overwritten by the up-to-date record in this list. 
 
         private List<T> recordsToAddDirectly = new List<T>();
+        //Members of this list are added through the "Add" method of this DbSet.
+        //Members of this list doesn't have a real id yet. Real ids are assigned during the SaveChanges operation.
 
         private List<T> recordsToRemove = new List<T>();
+        //Members of this list are added through the "Remove" method of this DbSet.
+        //During the SaveChanges operation; "removed flag"s of the each member are set to "true", and overwritten in the table file.
+        
 
         private List<T> allRecords = new List<T>();
 
         private List<Tuple<object, object>> recordsToAddAsChild = new List<Tuple<object, object>>();
-        //eklenenin sahibi, eklenen obje
-        //bunun olma nedeni= bu listede dönülürken, nesne eklenecek, çağıranın fk'si güncellenecek
-
+        //<owner of the to-be-added record, to-be-added record>
+        //explanation: during the SaveChanges operation, this list is iterated.
+        //For each _tuple, to-be-added record is inserted into the table file and given an id;
+        //and than a message is sent from this DbSet to the owner of the record's DbSet to update the owner of the record.
+        //Because both of these objects (owner and the child) are still in the memory,
+        //during the OverWrite operation when the "PropertyInfo which is associated with the child record" is checked,
+        //the child record will be accessed and its fk_id will be retrieved and overwritten to the file.
+        
         List<PropertyInfo> primitiveInfos = new List<PropertyInfo>();
         List<PropertyInfo> customInfos = new List<PropertyInfo>();
         List<PropertyInfo> orderedInfos = new List<PropertyInfo>(); //order in the file
@@ -60,8 +72,10 @@ namespace DKDB
                             int childObjectId = (int)childObject.GetType().GetProperty("id").GetValue(childObject);
                             if (childObjectId == 0)
                             {
+                                //Çocuk nesne varsa, ilgili dbset'in "Eklenecek çocuklar" listesine 
                                 object dbset = ctx.GetDBSetByType(childObject.GetType());
                                 object[] parameters = { new Tuple<object, object>(record, childObject) };
+                                //^ record=parent, childobject=child
                                 dbset.GetType().GetMethod("AddAsChild").Invoke(dbset, parameters);
                             }
                         }
@@ -74,11 +88,13 @@ namespace DKDB
             recordsToAddAsChild.Add(new Tuple<object, object>(owner, record));
         }
 
-        //id'si int olan nesne okunacak, object'in property'sine atanacak.
+        //savechanges çalışırken id'si int olan nesne okunacak, object'in property'sine atanacak.
         public void AddAsFilled(Tuple<object, PropertyInfo, int> RecordToBeFilled)
         {
             this.RecordsToBeFilled.Add(RecordToBeFilled);
         }
+
+        #region constructor related
 
         public void CreateFilesIfNotExist()
         {
@@ -147,7 +163,9 @@ namespace DKDB
             SetInfos();
         }
 
-        
+        #endregion
+
+
 
         /// <summary>
         /// Adds given record to the buffer.
@@ -258,49 +276,6 @@ namespace DKDB
             return allRecords;
         }
 
-        //public void Update(T record)
-        //{
-        //    ReadAllRecords();
-        //    PropertyInfo id = record.GetType().GetProperty("id");
-        //    //Orijinal üzerine daha sonra tüm değişiklikler sırayla uygulanacak.
-        //    T original = allRecords.FirstOrDefault(u => id.GetValue(u) == id.GetValue(record));
-
-        //    //Değişiklikleri tespit et.
-        //    foreach (PropertyInfo info in record.GetType().GetProperties())
-        //    {
-        //        if (primitiveInfos.Contains(info) && info.GetValue(record) != info.GetValue(original))
-        //        {
-        //            if (!Updates.ContainsKey(original))
-        //            {
-        //                Dictionary<PropertyInfo, object> dict = new Dictionary<PropertyInfo, object>();
-        //                dict.Add(info, info.GetValue(record));
-        //                Updates.Add(original, dict);
-        //            }
-        //            else
-        //            {
-        //                Updates.FirstOrDefault(kp => kp.Key.Equals(original)).Value.Add(info, info.GetValue(record));
-        //            }
-        //        }
-        //        else if (customInfos.Contains(info) && info.GetValue(record) != info.GetValue(original))
-        //        {
-        //            //Update listesinde yoksa
-        //            if (!Updates.ContainsKey(original))
-        //            {
-        //                //Anahtar ve değer oluştur
-        //                Dictionary<PropertyInfo, object> dict = new Dictionary<PropertyInfo, object>();
-        //                dict.Add(info, info.GetValue(record));
-        //                Updates.Add(original, dict);
-        //            }
-        //            //Update listesinde varsa
-        //            else
-        //            {
-        //                //Değerdeki listeye değişim ekle
-        //                Updates.FirstOrDefault(kp => kp.Key.Equals(original)).Value.Add(info, info.GetValue(record));
-        //            }
-        //        }
-        //    }
-        //}
-
         #endregion
 
         /// <summary>
@@ -350,10 +325,10 @@ namespace DKDB
                 object target = log.Item1;
                 int fkid = log.Item3;
                 RecordsToBeFilled.RemoveAt(0);
-                log.Item2.SetValue(log.Item1, Read(log.Item3));
+                log.Item2.SetValue(log.Item1, Read(log.Item3)); //critical work completed here
                 
             }
-            return result;
+            return result; //returns false if nothing is done, otherwise true.
         }
 
         private void ReadAllRecords()
@@ -362,7 +337,7 @@ namespace DKDB
             {
                 FileOps.CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
                 int line = -1;//satır sayısını hesapla
-                for (int i = 0; i < line; i++)
+                for (int i = 0; i < line; i++) 
                 {
                     allRecords.Add(Read(i, true));
                 }
@@ -381,9 +356,9 @@ namespace DKDB
             bool result = false;
             if (command == "AddDirectly")
             {
-                //0'dakiler ile işlem yapma nedeni:
+                //0. elemanlar ile işlem yapma nedeni:
                 //Bir ekleme işlemi yapılırken, içinde çocuk nesne var ise, bir şekilde üzerinde çalışılan
-                //listenin sonuna yeni kayıt eklenmesine neden olabilir. mi? düşün
+                //listenin sonuna yeni kayıt eklenmesine neden olabilir.
                 OpenMainWrite();
                 while (recordsToAddDirectly.Count() != 0)
                 {
@@ -408,6 +383,7 @@ namespace DKDB
                     object ownerDbSet = ctx.GetDBSetByType(ownerDbSetType);
                     object[] parameters = new object[1];
                     parameters[0] = recordsToAddAsChild[0].Item1;
+                    //Explained under recordsToAddAsChild declaration.
                     ownerDbSet.GetType().GetMethod("Update").Invoke(ownerDbSet, parameters);
                     recordsToAddAsChild.RemoveAt(0);
                 }
@@ -465,7 +441,7 @@ namespace DKDB
             //object = the record that it's childs will be read and assigned to.
             //propertyinfo = propertyinfo of a child of the record
             //int = id of the child to be read.
-            fillingLog = FileOps.ReadSingle(mainFile, id, typeof(T), primitiveInfos, customInfos, orderedInfos);
+            fillingLog = FileOps.ReadSingleRecord(mainFile, id, typeof(T), primitiveInfos, customInfos, orderedInfos);
             foreach (KeyValuePair<PropertyInfo, int> kp in fillingLog.Item2)
             {
                 object dbset = ctx.GetDBSetByType(kp.Key.PropertyType);
@@ -485,5 +461,56 @@ namespace DKDB
         }
         
 
+        public List<T> Filter(PropertyInfo info, object value)
+        {
+            //infosunun değeri, value'ya eşit olanları döndürür. Karşılaştırma fileops'ta gerçekleşecek.
+            List<T> filteredResults = new List<T>();
+            return filteredResults;
+        }
+
     }
 }
+
+
+//public void Update(T record)
+//{
+//    ReadAllRecords();
+//    PropertyInfo id = record.GetType().GetProperty("id");
+//    //Orijinal üzerine daha sonra tüm değişiklikler sırayla uygulanacak.
+//    T original = allRecords.FirstOrDefault(u => id.GetValue(u) == id.GetValue(record));
+
+//    //Değişiklikleri tespit et.
+//    foreach (PropertyInfo info in record.GetType().GetProperties())
+//    {
+//        if (primitiveInfos.Contains(info) && info.GetValue(record) != info.GetValue(original))
+//        {
+//            if (!Updates.ContainsKey(original))
+//            {
+//                Dictionary<PropertyInfo, object> dict = new Dictionary<PropertyInfo, object>();
+//                dict.Add(info, info.GetValue(record));
+//                Updates.Add(original, dict);
+//            }
+//            else
+//            {
+//                Updates.FirstOrDefault(kp => kp.Key.Equals(original)).Value.Add(info, info.GetValue(record));
+//            }
+//        }
+//        else if (customInfos.Contains(info) && info.GetValue(record) != info.GetValue(original))
+//        {
+//            //Update listesinde yoksa
+//            if (!Updates.ContainsKey(original))
+//            {
+//                //Anahtar ve değer oluştur
+//                Dictionary<PropertyInfo, object> dict = new Dictionary<PropertyInfo, object>();
+//                dict.Add(info, info.GetValue(record));
+//                Updates.Add(original, dict);
+//            }
+//            //Update listesinde varsa
+//            else
+//            {
+//                //Değerdeki listeye değişim ekle
+//                Updates.FirstOrDefault(kp => kp.Key.Equals(original)).Value.Add(info, info.GetValue(record));
+//            }
+//        }
+//    }
+//}
