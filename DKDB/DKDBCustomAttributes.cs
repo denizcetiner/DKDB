@@ -20,19 +20,29 @@ namespace DKDB
             return attr.MaxLength;
         }
 
+        public static string GetOTMTarget(PropertyInfo info)
+        {
+            OneToMany attr = (OneToMany)info.GetCustomAttribute(typeof(OneToMany));
+            if (attr == null) return null;
+            return attr.Target;
+        }
+
         public static bool Validator(object o)
         {
             PropertyInfo[] infos = o.GetType().GetProperties();
             foreach (PropertyInfo info in infos)
             {
-                DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
-
-                Type t = info.PropertyType;
-                if (attr != null && attr.MaxLength < ((String)(info.GetValue(o))).Length)
+                if (info.PropertyType.ToString().Contains("String"))
                 {
-                    return false;
-                }
+                    DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
 
+                    Type t = info.PropertyType;
+                    if (attr != null && attr.MaxLength < ((String)(info.GetValue(o))).Length)
+                    {
+                        return false;
+                    }
+                }
+                
             }
             return true;
         }
@@ -44,6 +54,12 @@ namespace DKDB
         public class DKDBMaxLengthAttribute : Attribute
         {
             public int MaxLength { get; set; }
+        }
+
+        [AttributeUsage(AttributeTargets.Property)]
+        public class OneToMany: Attribute
+        {
+            public String Target { get; set; }
         }
     }
 }

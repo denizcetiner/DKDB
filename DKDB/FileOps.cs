@@ -44,8 +44,13 @@ namespace DKDB
         /// <param name="customInfos">To check where the current info belongs</param>
         /// <param name="info">İnfo to be read</param>
         /// <returns>Returns the read value in object form</returns>
-        public static object ReadSingleProperty(BinaryReader br, List<PropertyInfo> primitiveInfos, List<PropertyInfo> customInfos, PropertyInfo info)
+        public static object ReadSingleProperty(BinaryReader br, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, PropertyInfo info)
         {
+            List<PropertyInfo> primitiveInfos = piContainer.Item1;
+            List<PropertyInfo> customInfos = piContainer.Item2;
+            List<PropertyInfo> orderedInfos = piContainer.Item3;
+            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+
             Type t = info.PropertyType;
             if (customInfos.Contains(info))
             {
@@ -103,21 +108,26 @@ namespace DKDB
         /// <param name="infos">Ordered info list to be read from the file.</param>
         /// <returns>Returns the record, and list of the childs to be read if exists.</returns>
         public static Tuple<object, Dictionary<PropertyInfo, int>> ReadSingleRecord(Stream mainFile, int id, Type t,
-            List<PropertyInfo> primitiveInfos, List<PropertyInfo> customInfos, List<PropertyInfo> infos)
+            Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer)
         {
+            List<PropertyInfo> primitiveInfos = piContainer.Item1;
+            List<PropertyInfo> customInfos = piContainer.Item2;
+            List<PropertyInfo> orderedInfos = piContainer.Item3;
+            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+
             Dictionary<PropertyInfo, int> childObjects = new Dictionary<PropertyInfo, int>();
 
             object record = Activator.CreateInstance(t);
             BinaryReader br = new BinaryReader(mainFile);
-            foreach (PropertyInfo info in infos)
+            foreach (PropertyInfo info in orderedInfos)
             {
                 if (customInfos.Contains(info))
                 {
-                    childObjects.Add(info, (int)ReadSingleProperty(br, primitiveInfos, customInfos, info));
+                    childObjects.Add(info, (int)ReadSingleProperty(br, piContainer, info));
                 }
                 else
                 {
-                    info.SetValue(record, ReadSingleProperty(br, primitiveInfos, customInfos, info));
+                    info.SetValue(record, ReadSingleProperty(br, piContainer, info));
                 }
             }
             Tuple<object, Dictionary<PropertyInfo, int>> fillingLog
@@ -139,13 +149,18 @@ namespace DKDB
         /// <param name="infos">Properties that will be stored in database. (To exclude notmapped properties)</param>
         /// <param name="record">Record to be inserted</param>
         /// <returns>Returns the id of last inserted record</returns>
-        public static int Add(Stream mainFile, List<int> removedIndexes, List<PropertyInfo> customInfos, List<PropertyInfo> primitiveInfos, List<PropertyInfo> orderedInfos, object record)
+        public static int Add(Stream mainFile, List<int> removedIndexes, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, object record)
         {
+            List<PropertyInfo> primitiveInfos = piContainer.Item1;
+            List<PropertyInfo> customInfos = piContainer.Item2;
+            List<PropertyInfo> orderedInfos = piContainer.Item3;
+            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+
             int indexToBeInserted = -1;
             if (removedIndexes.Count() > 0)
             {
                 indexToBeInserted = removedIndexes[0];
-                Overwrite(mainFile, customInfos, primitiveInfos, orderedInfos, record);
+                Overwrite(mainFile, piContainer, record);
                 return indexToBeInserted;
             }
             int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //byte size of a row
@@ -155,6 +170,7 @@ namespace DKDB
             foreach (PropertyInfo info in orderedInfos)
             {
                 if (primitiveInfos.Contains(info))
+                {
                     if (info.Name == "id")
                     {
                         WriteSingleProperty(bw, info, indexToBeInserted);
@@ -163,6 +179,7 @@ namespace DKDB
                     {
                         WriteSingleProperty(bw, info, info.GetValue(record));
                     }
+                }
                 if (customInfos.Contains(info))
                 {
                     int fk_id;
@@ -178,6 +195,7 @@ namespace DKDB
 
                     bw.Write(fk_id);
                 }
+                //one to many ise burada iş yok, dbset'te request yapılacak.
             }
 
 
@@ -231,8 +249,13 @@ namespace DKDB
         /// <param name="primitiveInfos">To compare.</param>
         /// <param name="orderedInfos">The infos in the order of being written to the file.</param>
         /// <param name="record">Record to be overwritten.</param>
-        public static void Overwrite(Stream mainFile, List<PropertyInfo> customInfos, List<PropertyInfo> primitiveInfos, List<PropertyInfo> orderedInfos, object record)
+        public static void Overwrite(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, object record)
         {
+            List<PropertyInfo> primitiveInfos = piContainer.Item1;
+            List<PropertyInfo> customInfos = piContainer.Item2;
+            List<PropertyInfo> orderedInfos = piContainer.Item3;
+            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+
             int indexToBeInserted = (int)record.GetType().GetProperty("id").GetValue(record);
             int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
             mainFile.Position = sizeOfRow * indexToBeInserted; //gerekirse düzelt
@@ -260,10 +283,10 @@ namespace DKDB
         /// <param name="orderedInfos"></param>
         /// <param name="metaFile">MetaFile stream of the dbset. To update the removed indexes. (Burada mı yapılacak? düşün.)</param>
         /// <param name="record"></param>
-        public static void Remove(Stream mainFile, List<PropertyInfo> customInfos, List<PropertyInfo> primitiveInfos, List<PropertyInfo> orderedInfos, Stream metaFile, object record)
+        public static void Remove(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, Stream metaFile, object record)
         {
             record.GetType().GetProperty("removedFlag").SetValue(record, true);
-            Overwrite(mainFile, customInfos, primitiveInfos, orderedInfos, record);
+            Overwrite(mainFile, piContainer, record);
             //removed indexes ile ilgili iş nerede yapılacak?
         }
 
@@ -298,7 +321,7 @@ namespace DKDB
             {
                 if (customInfos.Contains(info))
                 {
-                    total += sizeof(int);
+                    total += sizeof(int); //foreign key
                 }
                 else if (info.PropertyType == typeof(String))
                 {

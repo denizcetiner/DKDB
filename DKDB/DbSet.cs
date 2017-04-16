@@ -41,14 +41,21 @@ namespace DKDB
         //during the OverWrite operation when the "PropertyInfo which is associated with the child record" is checked,
         //the child record will be accessed and its fk_id will be retrieved and overwritten to the file.
         
+        
         List<PropertyInfo> primitiveInfos = new List<PropertyInfo>();
         List<PropertyInfo> customInfos = new List<PropertyInfo>();
         List<PropertyInfo> orderedInfos = new List<PropertyInfo>(); //order in the file
+
+        Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer;
 
         private List<Tuple<object, PropertyInfo, int>> RecordsToBeFilled = new List<Tuple<object, PropertyInfo, int>>();
         //object=nesne referansı okunup doldurulacak nesne.
         //propertyinfo=doldurulacak property
         //referansın id'si
+
+        private List<PropertyInfo> OneToMany_One = new List<PropertyInfo>();
+        private List<PropertyInfo> OneToMany_Many = new List<PropertyInfo>();
+        private List<Tuple<object, PropertyInfo>> OTMRequests = new List<Tuple<object, PropertyInfo>>();
 
         #endregion
 
@@ -128,6 +135,17 @@ namespace DKDB
                 {
                     primitiveInfos.Add(info);
                 }
+                else if(info.PropertyType.IsGenericType)
+                {
+                    if(DKDBCustomAttributes.GetOTMTarget(info) == null)
+                    {
+                        //many to many
+                    }
+                    else
+                    {
+                        OneToMany_One.Add(info);
+                    }
+                }
                 else
                 {
                     customInfos.Add(info);
@@ -161,6 +179,8 @@ namespace DKDB
             this.ctx = ctx;
             CreateFilesIfNotExist();
             SetInfos();
+            piContainer = new Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>>(
+                this.primitiveInfos, this.customInfos, this.orderedInfos, OneToMany_One);
         }
 
         #endregion
@@ -363,7 +383,7 @@ namespace DKDB
                 while (recordsToAddDirectly.Count() != 0)
                 {
                     result = true;
-                    FileOps.Add(mainFile, removedIndexes, customInfos, primitiveInfos, orderedInfos, recordsToAddDirectly[0]);
+                    FileOps.Add(mainFile, removedIndexes, piContainer, recordsToAddDirectly[0]);
                     recordsToAddDirectly.RemoveAt(0);
                 }
                 mainFile.Close();
@@ -376,7 +396,7 @@ namespace DKDB
                     result = true;
                     //item1=parent, item2=child
                     T record = (T)recordsToAddAsChild[0].Item2;
-                    int fk = FileOps.Add(mainFile, removedIndexes, customInfos, primitiveInfos, orderedInfos, record);
+                    int fk = FileOps.Add(mainFile, removedIndexes, piContainer, record);
                     record.GetType().GetProperty("id").SetValue(record, fk);
                     Type ownerType = recordsToAddAsChild[0].Item1.GetType();
                     Type ownerDbSetType = ctx.dbsetTypes.Where(a => a.ToString().Equals(ownerType.ToString())).ElementAt(0);
@@ -404,7 +424,7 @@ namespace DKDB
                     //}
                     #endregion
                     T record = Updates[0];
-                    FileOps.Overwrite(mainFile, customInfos, primitiveInfos, orderedInfos, record);
+                    FileOps.Overwrite(mainFile, piContainer, record);
                     Updates.RemoveAt(0);
                 }
                 mainFile.Close();
@@ -415,13 +435,29 @@ namespace DKDB
                 while (recordsToRemove.Count() != 0)
                 {
                     result = true;
-                    FileOps.Remove(mainFile, customInfos, primitiveInfos, orderedInfos, metaFile, recordsToRemove[0]);
+                    FileOps.Remove(mainFile, piContainer, metaFile, recordsToRemove[0]);
                     recordsToRemove.RemoveAt(0);
                 }
                 mainFile.Close();
             }
             //
             return result;
+        }
+
+        /// <summary>
+        /// Fills the 'one' side of OTM relations for each request
+        /// </summary>
+        public void CompleteOTMRequests()
+        {
+            while(OTMRequests.Count()>0)
+            {
+                ReadAllRecords(); //bunu düzelt sürekli okuyup durmasın. kontrol falan koy savechanges olduktan sonra bir defa 
+                //tekrar okusun sadece.
+                Tuple<object, PropertyInfo> request = OTMRequests[0];
+                int id = (int)request.Item1.GetType().GetProperty("id").GetValue(request.Item1);
+                String otm_target = DKDBCustomAttributes.GetOTMTarget(request.Item2);
+                List<T> filtered = allRecords.Where(record => (int)record.GetType().GetProperty(otm_target).GetValue(record) == id).ToList();
+            }
         }
 
 
@@ -441,7 +477,8 @@ namespace DKDB
             //object = the record that it's childs will be read and assigned to.
             //propertyinfo = propertyinfo of a child of the record
             //int = id of the child to be read.
-            fillingLog = FileOps.ReadSingleRecord(mainFile, id, typeof(T), primitiveInfos, customInfos, orderedInfos);
+            //for one-to-one relation or one-to-many relation's many side
+            fillingLog = FileOps.ReadSingleRecord(mainFile, id, typeof(T), piContainer);
             foreach (KeyValuePair<PropertyInfo, int> kp in fillingLog.Item2)
             {
                 object dbset = ctx.GetDBSetByType(kp.Key.PropertyType);
@@ -451,22 +488,34 @@ namespace DKDB
                 dbset.GetType().GetMethod("AddAsFilled").Invoke(dbset, parameters2);
                 
             }
+
+            foreach(PropertyInfo OTM in OneToMany_One)
+            {
+                object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
+                object[] parameters = { new Tuple<object,PropertyInfo>(fillingLog.Item1, OTM) };
+                dbset.GetType().GetMethod("AddAsOTMRequest").Invoke(dbset, parameters);
+                CompleteOTMRequests();
+            }
+
             if (!CameByAllFunction)
             {
                 ctx.FillOthers();
+                ctx.CompleteAllOTMRequests();
                 mainFile.Close();
             } //else, the stream will be closed and the FillOthers will be called in the wrapper function.
             return (T)fillingLog.Item1;
 
         }
         
-
-        public List<T> Filter(PropertyInfo info, object value)
+        /// <summary>
+        /// For call by reflection from ctx. Adds an OTM (one to many) request to the requests list.
+        /// </summary>
+        /// <param name="req"></param>
+        public void AddAsOTMRequest(Tuple<object, PropertyInfo> req)
         {
-            //infosunun değeri, value'ya eşit olanları döndürür. Karşılaştırma fileops'ta gerçekleşecek.
-            List<T> filteredResults = new List<T>();
-            return filteredResults;
+            OTMRequests.Add(req);
         }
+        
 
     }
 }

@@ -31,6 +31,22 @@ namespace DKDB
             return null;
         }
 
+
+        public void CompleteAllOTMRequests()
+        {
+            bool result = true;
+            //referansları doldur.
+            foreach (object dbset in dbsets)
+            {
+                result &= (bool)dbset.GetType().GetMethod("CompleteOTMRequests").Invoke(dbset, null);
+            }
+            if (result)
+            {
+                CompleteAllOTMRequests(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
+                //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
+            }
+        }
+
         /// <summary>
         /// Fills the child objects of the read records.
         /// </summary>
