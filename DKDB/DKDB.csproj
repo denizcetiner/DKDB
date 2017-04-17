@@ -46,6 +46,7 @@
     <Compile Include="DKDBConfig.cs" />
     <Compile Include="DKDBCustomAttributes.cs" />
     <Compile Include="FileOps.cs" />
+    <Compile Include="MTMRec.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

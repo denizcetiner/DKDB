@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -28,7 +29,7 @@ namespace DKDB
         private List<T> recordsToRemove = new List<T>();
         //Members of this list are added through the "Remove" method of this DbSet.
         //During the SaveChanges operation; "removed flag"s of the each member are set to "true", and overwritten in the table file.
-        
+
 
         private List<T> allRecords = new List<T>();
 
@@ -40,8 +41,8 @@ namespace DKDB
         //Because both of these objects (owner and the child) are still in the memory,
         //during the OverWrite operation when the "PropertyInfo which is associated with the child record" is checked,
         //the child record will be accessed and its fk_id will be retrieved and overwritten to the file.
-        
-        
+
+
         List<PropertyInfo> primitiveInfos = new List<PropertyInfo>();
         List<PropertyInfo> customInfos = new List<PropertyInfo>();
         List<PropertyInfo> orderedInfos = new List<PropertyInfo>(); //order in the file
@@ -53,9 +54,15 @@ namespace DKDB
         //propertyinfo=doldurulacak property
         //referansın id'si
 
-        private List<PropertyInfo> OneToMany_One = new List<PropertyInfo>();
+        private List<Tuple<object, object, string>> recordsToAddAsMTM = new List<Tuple<object, object, string>>();
+
+        List<PropertyInfo> OneToMany_One = new List<PropertyInfo>();
         private List<PropertyInfo> OneToMany_Many = new List<PropertyInfo>();
         private List<Tuple<object, PropertyInfo>> OTMRequests = new List<Tuple<object, PropertyInfo>>();
+
+        private List<Tuple<String, PropertyInfo, Type>> ManyToMany = new List<Tuple<string, PropertyInfo, Type>>();
+        //table adları, ctx'ten bakılacak.
+        //dbset construct edilirken bunu ve ctx'in içindekini doldur.
 
         #endregion
 
@@ -95,6 +102,7 @@ namespace DKDB
             recordsToAddAsChild.Add(new Tuple<object, object>(owner, record));
         }
 
+
         //savechanges çalışırken id'si int olan nesne okunacak, object'in property'sine atanacak.
         public void AddAsFilled(Tuple<object, PropertyInfo, int> RecordToBeFilled)
         {
@@ -105,12 +113,12 @@ namespace DKDB
 
         public void CreateFilesIfNotExist()
         {
-            if(!File.Exists(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat")))
+            if (!File.Exists(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat")))
             {
                 mainFile = File.Create(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
                 mainFile.Close();
             }
-            if(!File.Exists(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat")))
+            if (!File.Exists(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat")))
             {
                 metaFile = File.Create(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
                 metaFile.Close();
@@ -135,15 +143,22 @@ namespace DKDB
                 {
                     primitiveInfos.Add(info);
                 }
-                else if(info.PropertyType.IsGenericType)
+                else if (info.PropertyType.IsGenericType)
                 {
-                    if(DKDBCustomAttributes.GetOTMTarget(info) == null)
-                    {
-                        //many to many
-                    }
-                    else
+                    if (DKDBCustomAttributes.GetOTMTarget(info) != null)
                     {
                         OneToMany_One.Add(info);
+
+                    }
+                    Tuple<string, string> Target_Table = DKDBCustomAttributes.GetMTMTargetAndTable(info);
+                    if (Target_Table != null)
+                    {
+                        Type targetType = info.PropertyType.GetGenericArguments()[0].GetType();
+                        Type me = typeof(T);
+                        PropertyInfo targetInfo = info.PropertyType.GetGenericArguments()[0].GetProperty(Target_Table.Item1);
+                        ctx.MTMRelations.Add(
+                            Target_Table.Item2, new Tuple<Type, Type>(me, targetType));
+                        this.ManyToMany.Add(new Tuple<String, PropertyInfo, Type>(Target_Table.Item2, info, targetType));
                     }
                 }
                 else
@@ -152,14 +167,14 @@ namespace DKDB
                 }
             }
             OpenMetaRead();
-            List<Tuple<String,String>> PropsAndNames = FileOps.ReadMetaFilePropertiesAndNames(metaFile);
+            List<Tuple<String, String>> PropsAndNames = FileOps.ReadMetaFilePropertiesAndNames(metaFile);
             metaFile.Close();
 
-            foreach (Tuple<String,String> pair in PropsAndNames)
+            foreach (Tuple<String, String> pair in PropsAndNames)
             {
-                for(int i=0;i<primitiveInfos.Count;i++)
+                for (int i = 0; i < primitiveInfos.Count; i++)
                 {
-                    if(pair.Item2 == primitiveInfos[i].Name)
+                    if (pair.Item2 == primitiveInfos[i].Name)
                     {
                         orderedInfos.Add(primitiveInfos[i]);
                     }
@@ -173,6 +188,14 @@ namespace DKDB
                 }
             }
         }
+
+        public int WhoAmI(string table)
+        {
+            KeyValuePair<string, Tuple<Type, Type>> kp = ctx.MTMRelations.FirstOrDefault(r => r.Key == table);
+            if (typeof(T) == kp.Value.Item1) return 1;
+            else return 2;
+        }
+
 
         public DbSet(DbContext ctx)
         {
@@ -327,7 +350,7 @@ namespace DKDB
             }
         }
 
-        
+
 
         /// <summary>
         /// Completes the child assignment requests ordered by the parent objects.
@@ -346,7 +369,7 @@ namespace DKDB
                 int fkid = log.Item3;
                 RecordsToBeFilled.RemoveAt(0);
                 log.Item2.SetValue(log.Item1, Read(log.Item3)); //critical work completed here
-                
+
             }
             return result; //returns false if nothing is done, otherwise true.
         }
@@ -355,16 +378,16 @@ namespace DKDB
         {
             if (allRecords.Count == 0)
             {
-                FileOps.CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
-                int line = -1;//satır sayısını hesapla
-                for (int i = 0; i < line; i++) 
+
+                int line = Convert.ToInt32(mainFile.Length) / FileOps.CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
+                for (int i = 0; i < line; i++)
                 {
                     allRecords.Add(Read(i, true));
                 }
             }
         }
-        
-        
+
+
 
         /// <summary>
         /// Completes some of the changes in the dbset chosen by the command.
@@ -383,7 +406,8 @@ namespace DKDB
                 while (recordsToAddDirectly.Count() != 0)
                 {
                     result = true;
-                    FileOps.Add(mainFile, removedIndexes, piContainer, recordsToAddDirectly[0]);
+                    int id = FileOps.Add(mainFile, removedIndexes, piContainer, recordsToAddDirectly[0]);
+                    recordsToAddDirectly[0].GetType().GetProperty("id").SetValue(recordsToAddDirectly[0], id);
                     recordsToAddDirectly.RemoveAt(0);
                 }
                 mainFile.Close();
@@ -441,6 +465,37 @@ namespace DKDB
                 mainFile.Close();
             }
             //
+            if (command == "AddMTM")
+            {
+                OpenMainWrite();
+                
+                while (recordsToAddAsMTM.Count() > 0)
+                {
+                    int id_column = WhoAmI(recordsToAddAsMTM[0].Item3); //1 defa çalışacak şekilde ayarla
+                    result = true;
+                    int id = FileOps.Add(mainFile, removedIndexes, piContainer, recordsToAddAsMTM[0].Item2);
+                    recordsToAddAsMTM[0].Item2.GetType().GetProperty("id").SetValue(recordsToAddAsMTM[0].Item2, id);
+                    MTMRec mtmRec;
+                    if(id_column == 1)
+                    {
+                        mtmRec = new MTMRec(
+                        (int)recordsToAddAsMTM[0].Item2.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item2),
+                        (int)recordsToAddAsMTM[0].Item1.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item1)
+                        );
+                    }
+                    else
+                    {
+                        mtmRec = new MTMRec(
+                        (int)recordsToAddAsMTM[0].Item1.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item1),
+                        (int)recordsToAddAsMTM[0].Item2.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item2)
+                        );
+                    }
+                    
+                    ctx.MTMToWrite.Add(recordsToAddAsMTM[0].Item3, mtmRec);
+                    recordsToAddAsMTM.RemoveAt(0);
+                }
+
+            }
             return result;
         }
 
@@ -449,7 +504,7 @@ namespace DKDB
         /// </summary>
         public void CompleteOTMRequests()
         {
-            while(OTMRequests.Count()>0)
+            while (OTMRequests.Count() > 0)
             {
                 ReadAllRecords(); //bunu düzelt sürekli okuyup durmasın. kontrol falan koy savechanges olduktan sonra bir defa 
                 //tekrar okusun sadece.
@@ -460,6 +515,82 @@ namespace DKDB
             }
         }
 
+        public Tuple<PropertyInfo, PropertyInfo> MTMPropertyOrdered(object rec, Tuple<PropertyInfo, PropertyInfo> value) //tuple dönecek, 1.item bu sınıfın propertysi, 2.item karşı tarafın
+        {
+            var type = rec.GetType();
+            if (type.GetProperty(value.Item1.Name) == null)
+            {
+                return new Tuple<PropertyInfo, PropertyInfo>(value.Item2, value.Item1);
+            }
+            else
+            {
+                return value;
+            }
+        }
+
+        public void WriteCompleteMTM(object rec)
+        {
+            foreach (Tuple<String, PropertyInfo, Type> tuple in ManyToMany)
+            {
+                object list = rec.GetType().GetProperty(tuple.Item2.Name).GetValue(rec);
+                object opposite_dbset = ctx.GetDBSetByType(tuple.Item3);
+                foreach (var a in list as IEnumerable)
+                {
+
+                    opposite_dbset.GetType().GetMethod("Add")
+                }
+            }
+        }
+
+        public void AddAsMTM(object owner, object child)
+        {
+
+        }
+
+        public void ReadCompleteMTM(object rec)
+        {
+            foreach (Tuple<String, PropertyInfo, Type> tuple in ManyToMany)
+            {
+                //Tuple<PropertyInfo,PropertyInfo> value = ctx.MTMRelations.FirstOrDefault(a => a.Key == table).Value;
+                //value = MTMPropertyOrdered(rec, value);
+                Stream mtmStream = File.OpenRead("mtm stream yolu");//düzelt
+                int line = Convert.ToInt32(mtmStream.Length / sizeof(int) * 3);
+                List<MTMRec> mtmRecs = new List<MTMRec>();
+                MTMRec.initContainer();
+                for (int i = 0; i < line; i++)
+                {
+                    Tuple<object, Dictionary<PropertyInfo, int>> fillingLog;
+
+                    fillingLog = FileOps.ReadSingleRecord(mtmStream, i + 1, tuple.Item3, MTMRec.piContainer);
+                    mtmRecs.Add((MTMRec)fillingLog.Item1);
+                }
+                mtmStream.Close();
+                int my_id_column = WhoAmI(tuple.Item1); //MTMRec içinde id1 mi benim sütunum yoksa id2 mi? ctx'teki sıraya göre kontrol edilir
+                List<int> toGetList = new List<int>(); //Getirilecek nesnelerin id listesi
+                foreach (MTMRec mtmRec in mtmRecs)
+                {
+                    if (my_id_column == 1)
+                    {
+                        if (mtmRec.id_1 == (int)rec.GetType().GetProperty("id").GetValue(rec)) toGetList.Add(mtmRec.id_2);
+                    }
+                    else
+                    {
+                        if (mtmRec.id_2 == (int)rec.GetType().GetProperty("id").GetValue(rec)) toGetList.Add(mtmRec.id_1);
+                    }
+                }
+                object opposite_dbset = ctx.GetDBSetByType(typeof(T));
+                foreach (int toGet in toGetList)
+                {
+                    object[] parameters = new object[2];
+                    parameters[0] = toGet;
+                    parameters[1] = false;
+                    opposite_dbset.GetType().GetMethod("Read").Invoke(opposite_dbset, parameters);
+                }
+            }
+        }
+
+
+
 
         /// <summary>
         /// Reads a single record from the file.
@@ -469,7 +600,7 @@ namespace DKDB
         /// <returns></returns>
         public T Read(int id, bool CameByAllFunction = false)
         {
-            if(!CameByAllFunction)
+            if (!CameByAllFunction)
             {
                 OpenMainRead();
             } //else, the stream should be already opened before.
@@ -486,13 +617,13 @@ namespace DKDB
                 Tuple<object, PropertyInfo, int> RecordToBeFilled = new Tuple<object, PropertyInfo, int>(fillingLog.Item1, kp.Key, kp.Value);
                 object[] parameters2 = { RecordToBeFilled };
                 dbset.GetType().GetMethod("AddAsFilled").Invoke(dbset, parameters2);
-                
+
             }
 
-            foreach(PropertyInfo OTM in OneToMany_One)
+            foreach (PropertyInfo OTM in OneToMany_One)
             {
                 object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
-                object[] parameters = { new Tuple<object,PropertyInfo>(fillingLog.Item1, OTM) };
+                object[] parameters = { new Tuple<object, PropertyInfo>(fillingLog.Item1, OTM) };
                 dbset.GetType().GetMethod("AddAsOTMRequest").Invoke(dbset, parameters);
                 CompleteOTMRequests();
             }
@@ -506,7 +637,7 @@ namespace DKDB
             return (T)fillingLog.Item1;
 
         }
-        
+
         /// <summary>
         /// For call by reflection from ctx. Adds an OTM (one to many) request to the requests list.
         /// </summary>
@@ -515,7 +646,7 @@ namespace DKDB
         {
             OTMRequests.Add(req);
         }
-        
+
 
     }
 }

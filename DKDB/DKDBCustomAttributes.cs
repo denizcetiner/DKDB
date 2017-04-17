@@ -19,6 +19,7 @@ namespace DKDB
             DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
             return attr.MaxLength;
         }
+        
 
         public static string GetOTMTarget(PropertyInfo info)
         {
@@ -27,12 +28,19 @@ namespace DKDB
             return attr.Target;
         }
 
+        public static Tuple<String,String> GetMTMTargetAndTable(PropertyInfo info)
+        {
+            ManyToMany attr = (ManyToMany)info.GetCustomAttribute(typeof(ManyToMany));
+            if (attr == null) return null;
+            return new Tuple<string, string>(attr.TableName, attr.Target);
+        }
+
         public static bool Validator(object o)
         {
             PropertyInfo[] infos = o.GetType().GetProperties();
             foreach (PropertyInfo info in infos)
             {
-                if (info.PropertyType.ToString().Contains("String"))
+                if (!info.PropertyType.IsGenericType)
                 {
                     DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
 
@@ -61,5 +69,13 @@ namespace DKDB
         {
             public String Target { get; set; }
         }
+
+        [AttributeUsage(AttributeTargets.Property)]
+        public class ManyToMany: Attribute
+        {
+            public String Target { get; set; }
+            public String TableName { get; set; }
+        }
+
     }
 }

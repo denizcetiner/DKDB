@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Reflection;
 using DKDB;
+using System.IO;
 
 namespace DKDB
 {
@@ -14,8 +15,13 @@ namespace DKDB
         public String EndingChars = "/()=";
         public List<Type> dbsetTypes = new List<Type>();
         public List<object> dbsets = new List<object>();
+        public Dictionary<String, Tuple<Type,Type>> MTMRelations
+            = new Dictionary<string, Tuple<Type,Type>>();
         //public List<TransactionRecord> transactionRecords = new List<TransactionRecord>();
 
+        public Dictionary<String, MTMRec> MTMToWrite = new Dictionary<string, MTMRec>();
+
+        public Dictionary<String, Stream> MTMStreams = new Dictionary<string, Stream>();
 
         //Returns a specific DbSet for easier access
         public object GetDBSetByType(Type t)
@@ -79,7 +85,11 @@ namespace DKDB
             initSetTypes(); //Creates the list of the DbSet Generic Parameter types
             initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
             InitDbSetProps(); //
-            
+            initMTMTables();
+        }
+
+        public void initMTMTables()
+        {
         }
 
         
@@ -153,6 +163,13 @@ namespace DKDB
             if(result) //if any changes happened, they may have triggered new changes.
             {
                 SaveChanges();
+            }
+            //Mtm kayıtlarını hallet.
+            foreach(KeyValuePair<String,MTMRec> kp in MTMToWrite)
+            {
+                Stream s; //Streami ata, aç
+                FileOps.Add(s, new List<int>(), MTMRec.piContainer, kp.Value);
+                //Streami kapa, sil listeden.
             }
             return 0;
         }
