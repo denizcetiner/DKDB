@@ -30,6 +30,8 @@ namespace DKDB
         //Members of this list are added through the "Remove" method of this DbSet.
         //During the SaveChanges operation; "removed flag"s of the each member are set to "true", and overwritten in the table file.
 
+        private List<Tuple<object, object, PropertyInfo>> recordsToAddAsOTM = new List<Tuple<object, object, PropertyInfo>>();
+        //obje1=parent, obje2=child, propertyinfo=child'in foreignkey alanı
 
         private List<T> allRecords = new List<T>();
 
@@ -54,11 +56,12 @@ namespace DKDB
         //propertyinfo=doldurulacak property
         //referansın id'si
 
-        private List<Tuple<object, object, string>> recordsToAddAsMTM = new List<Tuple<object, object, string>>();
+        private List<Tuple<object, PropertyInfo, List<int>>> RecordsToBeFilledMTM = new List<Tuple<object, PropertyInfo, List<int>>>();
 
         List<PropertyInfo> OneToMany_One = new List<PropertyInfo>();
         private List<PropertyInfo> OneToMany_Many = new List<PropertyInfo>();
         private List<Tuple<object, PropertyInfo>> OTMRequests = new List<Tuple<object, PropertyInfo>>();
+        //for reading
 
         private List<Tuple<String, PropertyInfo, Type>> ManyToMany = new List<Tuple<string, PropertyInfo, Type>>();
         //table adları, ctx'ten bakılacak.
@@ -102,12 +105,21 @@ namespace DKDB
             recordsToAddAsChild.Add(new Tuple<object, object>(owner, record));
         }
 
+        public void AddAsOTM(object owner, object child, PropertyInfo info)
+        {
+            this.recordsToAddAsOTM.Add(new Tuple<object, object, PropertyInfo>(owner, child, info));
+        }
 
         //savechanges çalışırken id'si int olan nesne okunacak, object'in property'sine atanacak.
         public void AddAsFilled(Tuple<object, PropertyInfo, int> RecordToBeFilled)
         {
             this.RecordsToBeFilled.Add(RecordToBeFilled);
         }
+
+        //public void AddAsFilledMTM(Tuple<object, PropertyInfo, int> RecordToBeFilled)
+        //{
+        //    this.RecordsToBeFilledMTM.Add(RecordToBeFilled);
+        //}
 
         #region constructor related
 
@@ -156,8 +168,12 @@ namespace DKDB
                         Type targetType = info.PropertyType.GetGenericArguments()[0].GetType();
                         Type me = typeof(T);
                         PropertyInfo targetInfo = info.PropertyType.GetGenericArguments()[0].GetProperty(Target_Table.Item1);
-                        ctx.MTMRelations.Add(
+
+                        if(!ctx.MTMRelations.Any(e => e.Key == Target_Table.Item2))
+                        {
+                            ctx.MTMRelations.Add(
                             Target_Table.Item2, new Tuple<Type, Type>(me, targetType));
+                        }
                         this.ManyToMany.Add(new Tuple<String, PropertyInfo, Type>(Target_Table.Item2, info, targetType));
                     }
                 }
@@ -237,9 +253,28 @@ namespace DKDB
                     }
                     //null ise -1 ya da 0 falan bas 
                 }
+                //one to many
+                foreach (PropertyInfo OTM in OneToMany_One)
+                {
+                    IList list = record.GetType().GetProperty(OTM.Name).GetValue(record) as IList;
+                    object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
+                    foreach(var a in list)
+                    {
+                        object[] parameters = new object[3];
+                        parameters[0] = record;
+                        parameters[1] = a;
+                        parameters[2] = DKDBCustomAttributes.GetOTMTarget(OTM);
+                        dbset.GetType().GetMethod("AddAsOTM").Invoke(dbset, parameters);
+                    }
+                }
+
+
+                //many to many
+
+                WriteCompleteMTM(record);
             }
 
-            recordsToAddDirectly.Add(record);
+            recordsToAddDirectly.Add(record); 
         }
 
         #region stream openers
@@ -378,12 +413,16 @@ namespace DKDB
         {
             if (allRecords.Count == 0)
             {
-
+                OpenMainRead();
                 int line = Convert.ToInt32(mainFile.Length) / FileOps.CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
                 for (int i = 0; i < line; i++)
                 {
                     allRecords.Add(Read(i, true));
                 }
+                mainFile.Close();
+                ctx.FillOthers();
+                ctx.CompleteAllOTMRequests();
+                ctx.CompleteAllMTMRequests();
             }
         }
 
@@ -397,6 +436,19 @@ namespace DKDB
         {
             String command = new string(com);
             bool result = false;
+            if(command == "AddOTM")
+            {
+                while(recordsToAddAsOTM.Count() != 0)
+                {
+                    Tuple<object, object, PropertyInfo> rec = recordsToAddAsOTM[0];
+                    OpenMainWrite();
+                    rec.Item2.GetType().GetProperty(rec.Item3.Name)
+                        .SetValue(rec.Item2, rec.Item1.GetType().GetProperty("id").GetValue(rec.Item1));
+                    int fk = FileOps.Add(mainFile, removedIndexes, piContainer, rec.Item2);
+                    rec.Item2.GetType().GetProperty("id").SetValue(rec.Item2, fk);
+                    result = true;
+                }
+            }
             if (command == "AddDirectly")
             {
                 //0. elemanlar ile işlem yapma nedeni:
@@ -464,130 +516,11 @@ namespace DKDB
                 }
                 mainFile.Close();
             }
-            //
-            if (command == "AddMTM")
-            {
-                OpenMainWrite();
-                
-                while (recordsToAddAsMTM.Count() > 0)
-                {
-                    int id_column = WhoAmI(recordsToAddAsMTM[0].Item3); //1 defa çalışacak şekilde ayarla
-                    result = true;
-                    int id = FileOps.Add(mainFile, removedIndexes, piContainer, recordsToAddAsMTM[0].Item2);
-                    recordsToAddAsMTM[0].Item2.GetType().GetProperty("id").SetValue(recordsToAddAsMTM[0].Item2, id);
-                    MTMRec mtmRec;
-                    if(id_column == 1)
-                    {
-                        mtmRec = new MTMRec(
-                        (int)recordsToAddAsMTM[0].Item2.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item2),
-                        (int)recordsToAddAsMTM[0].Item1.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item1)
-                        );
-                    }
-                    else
-                    {
-                        mtmRec = new MTMRec(
-                        (int)recordsToAddAsMTM[0].Item1.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item1),
-                        (int)recordsToAddAsMTM[0].Item2.GetType().GetProperty("id").GetValue(recordsToAddAsMTM[0].Item2)
-                        );
-                    }
-                    
-                    ctx.MTMToWrite.Add(recordsToAddAsMTM[0].Item3, mtmRec);
-                    recordsToAddAsMTM.RemoveAt(0);
-                }
-
-            }
             return result;
         }
 
-        /// <summary>
-        /// Fills the 'one' side of OTM relations for each request
-        /// </summary>
-        public void CompleteOTMRequests()
-        {
-            while (OTMRequests.Count() > 0)
-            {
-                ReadAllRecords(); //bunu düzelt sürekli okuyup durmasın. kontrol falan koy savechanges olduktan sonra bir defa 
-                //tekrar okusun sadece.
-                Tuple<object, PropertyInfo> request = OTMRequests[0];
-                int id = (int)request.Item1.GetType().GetProperty("id").GetValue(request.Item1);
-                String otm_target = DKDBCustomAttributes.GetOTMTarget(request.Item2);
-                List<T> filtered = allRecords.Where(record => (int)record.GetType().GetProperty(otm_target).GetValue(record) == id).ToList();
-            }
-        }
+        
 
-        public Tuple<PropertyInfo, PropertyInfo> MTMPropertyOrdered(object rec, Tuple<PropertyInfo, PropertyInfo> value) //tuple dönecek, 1.item bu sınıfın propertysi, 2.item karşı tarafın
-        {
-            var type = rec.GetType();
-            if (type.GetProperty(value.Item1.Name) == null)
-            {
-                return new Tuple<PropertyInfo, PropertyInfo>(value.Item2, value.Item1);
-            }
-            else
-            {
-                return value;
-            }
-        }
-
-        public void WriteCompleteMTM(object rec)
-        {
-            foreach (Tuple<String, PropertyInfo, Type> tuple in ManyToMany)
-            {
-                object list = rec.GetType().GetProperty(tuple.Item2.Name).GetValue(rec);
-                object opposite_dbset = ctx.GetDBSetByType(tuple.Item3);
-                foreach (var a in list as IEnumerable)
-                {
-
-                    opposite_dbset.GetType().GetMethod("Add")
-                }
-            }
-        }
-
-        public void AddAsMTM(object owner, object child)
-        {
-
-        }
-
-        public void ReadCompleteMTM(object rec)
-        {
-            foreach (Tuple<String, PropertyInfo, Type> tuple in ManyToMany)
-            {
-                //Tuple<PropertyInfo,PropertyInfo> value = ctx.MTMRelations.FirstOrDefault(a => a.Key == table).Value;
-                //value = MTMPropertyOrdered(rec, value);
-                Stream mtmStream = File.OpenRead("mtm stream yolu");//düzelt
-                int line = Convert.ToInt32(mtmStream.Length / sizeof(int) * 3);
-                List<MTMRec> mtmRecs = new List<MTMRec>();
-                MTMRec.initContainer();
-                for (int i = 0; i < line; i++)
-                {
-                    Tuple<object, Dictionary<PropertyInfo, int>> fillingLog;
-
-                    fillingLog = FileOps.ReadSingleRecord(mtmStream, i + 1, tuple.Item3, MTMRec.piContainer);
-                    mtmRecs.Add((MTMRec)fillingLog.Item1);
-                }
-                mtmStream.Close();
-                int my_id_column = WhoAmI(tuple.Item1); //MTMRec içinde id1 mi benim sütunum yoksa id2 mi? ctx'teki sıraya göre kontrol edilir
-                List<int> toGetList = new List<int>(); //Getirilecek nesnelerin id listesi
-                foreach (MTMRec mtmRec in mtmRecs)
-                {
-                    if (my_id_column == 1)
-                    {
-                        if (mtmRec.id_1 == (int)rec.GetType().GetProperty("id").GetValue(rec)) toGetList.Add(mtmRec.id_2);
-                    }
-                    else
-                    {
-                        if (mtmRec.id_2 == (int)rec.GetType().GetProperty("id").GetValue(rec)) toGetList.Add(mtmRec.id_1);
-                    }
-                }
-                object opposite_dbset = ctx.GetDBSetByType(typeof(T));
-                foreach (int toGet in toGetList)
-                {
-                    object[] parameters = new object[2];
-                    parameters[0] = toGet;
-                    parameters[1] = false;
-                    opposite_dbset.GetType().GetMethod("Read").Invoke(opposite_dbset, parameters);
-                }
-            }
-        }
 
 
 
@@ -628,15 +561,22 @@ namespace DKDB
                 CompleteOTMRequests();
             }
 
+            //MTM
+            ReadMTM(fillingLog.Item1);
+
             if (!CameByAllFunction)
             {
                 ctx.FillOthers();
                 ctx.CompleteAllOTMRequests();
+                ctx.CompleteAllMTMRequests();
                 mainFile.Close();
             } //else, the stream will be closed and the FillOthers will be called in the wrapper function.
             return (T)fillingLog.Item1;
 
         }
+
+
+        #region OTM
 
         /// <summary>
         /// For call by reflection from ctx. Adds an OTM (one to many) request to the requests list.
@@ -647,6 +587,152 @@ namespace DKDB
             OTMRequests.Add(req);
         }
 
+        /// <summary>
+        /// (Read)Fills the 'one' side of OTM relations for each request
+        /// </summary>
+        public void CompleteOTMRequests()
+        {
+            while (OTMRequests.Count() > 0)
+            {
+                ReadAllRecords(); //bunu düzelt sürekli okuyup durmasın. kontrol falan koy savechanges olduktan sonra bir defa 
+                //tekrar okusun sadece.
+                Tuple<object, PropertyInfo> request = OTMRequests[0];
+                int id = (int)request.Item1.GetType().GetProperty("id").GetValue(request.Item1);
+                String otm_target = DKDBCustomAttributes.GetOTMTarget(request.Item2);
+                List<T> filtered = allRecords.Where(record => (int)record.GetType().GetProperty(otm_target).GetValue(record) == id).ToList();
+            }
+        }
+
+
+
+        #endregion
+
+        #region MTM
+
+
+        public void ReadMTM(object rec)
+        {
+            foreach (Tuple<String, PropertyInfo, Type> tuple in ManyToMany)
+            {
+                //Tuple<PropertyInfo,PropertyInfo> value = ctx.MTMRelations.FirstOrDefault(a => a.Key == table).Value;
+                //value = MTMPropertyOrdered(rec, value);
+                Stream mtmStream = File.OpenRead("mtm stream yolu");//düzelt
+                int line = Convert.ToInt32(mtmStream.Length / sizeof(int) * 3);
+                List<MTMRec> mtmRecs = new List<MTMRec>();
+                MTMRec.initContainer();
+                for (int i = 0; i < line; i++)
+                {
+                    Tuple<object, Dictionary<PropertyInfo, int>> fillingLog;
+
+                    fillingLog = FileOps.ReadSingleRecord(mtmStream, i + 1, tuple.Item3, MTMRec.piContainer);
+                    mtmRecs.Add((MTMRec)fillingLog.Item1);
+                }
+                mtmStream.Close();
+                int my_id_column = WhoAmI(tuple.Item1); //MTMRec içinde id1 mi benim sütunum yoksa id2 mi? ctx'teki sıraya göre kontrol edilir
+                List<int> toGetList = new List<int>(); //Getirilecek nesnelerin id listesi
+                foreach (MTMRec mtmRec in mtmRecs)
+                {
+                    if (my_id_column == 1)
+                    {
+                        if (mtmRec.id_1 == (int)rec.GetType().GetProperty("id").GetValue(rec))
+                        {
+                            toGetList.Add(mtmRec.id_2);
+                        }
+                    }
+                    else
+                    {
+                        if (mtmRec.id_2 == (int)rec.GetType().GetProperty("id").GetValue(rec))
+                        {
+                            toGetList.Add(mtmRec.id_1);
+                        }
+                    }
+                }
+                Tuple<object, PropertyInfo, List<int>> request
+                    = new Tuple<object, PropertyInfo, List<int>>(rec, tuple.Item2, toGetList);
+                  object opposite_dbset = ctx.GetDBSetByType(typeof(T));
+                object[] parameters = new object[1];
+
+                parameters[0] = request;
+                opposite_dbset.GetType()
+                    .GetProperty("RecordsToBeFilledMTM").GetType()
+                    .GetMethod("AddRange").Invoke(opposite_dbset, parameters);
+                
+            }
+        }
+
+
+        /// <summary>
+        /// Read requests for performance
+        /// </summary>
+        public void CompleteMTMRequests()
+        {
+            while(this.RecordsToBeFilledMTM.Count()>0)
+            {
+                List<int> toGetList = RecordsToBeFilledMTM[0].Item3;
+                OpenMainRead();
+                object rec = RecordsToBeFilledMTM[0].Item1;
+                IList a = rec.GetType().GetProperty(RecordsToBeFilledMTM[0].Item2.Name).GetValue(rec) as IList;
+                if (a == null)
+                {
+                    Type d1 = typeof(List<>);
+                    Type[] typeArgs = { this.GetType().GetGenericArguments()[0] };
+                    Type constructed = d1.MakeGenericType(typeArgs);
+                    a = (IList)Activator.CreateInstance(constructed);
+                }
+                foreach (int toGet in toGetList)
+                {
+                    T toAdd = Read(toGet, true);
+                    a.Add(toAdd);
+                }
+                mainFile.Close();
+            }
+        }
+
+        /// <summary>
+        /// Adds the mtm list 
+        /// </summary>
+        /// <param name="rec"></param>
+        public void WriteCompleteMTM(object rec)
+        {
+            foreach (Tuple<String, PropertyInfo, Type> tuple in ManyToMany)
+            {
+                object list = rec.GetType().GetProperty(tuple.Item2.Name).GetValue(rec);
+                object opposite_dbset = ctx.GetDBSetByType(tuple.Item3);
+                foreach (object child_mtm in list as IEnumerable)
+                {
+                    if (!ctx.MTMToWrite.Any(e => e.Key == tuple.Item1))
+                    {
+                        ctx.MTMToWrite.Add(tuple.Item1, new List<Tuple<object, object>>());
+                    }
+                    object[] parameters = new object[1];
+                    parameters[0] = child_mtm;
+                    if((int)child_mtm.GetType().GetProperty("id").GetValue(child_mtm) == 0)
+                    {
+                        opposite_dbset.GetType().GetMethod("Add").Invoke(opposite_dbset, parameters); //id kontrol et
+                    }
+
+                    int id_column = WhoAmI(tuple.Item1);
+                    if (!ctx.MTMToWrite.Any(e => e.Key == tuple.Item1))
+                    {
+                        ctx.MTMToWrite.Add(tuple.Item1, new List<Tuple<object, object>>());
+                    }
+                    KeyValuePair<String, List<Tuple<object, object>>> kp
+                        = ctx.MTMToWrite.FirstOrDefault(e => e.Key == tuple.Item1);
+
+                    if (id_column == 1)
+                    {
+                        kp.Value.Add(new Tuple<object, object>(rec, child_mtm));
+                    }
+                    if (id_column == 2)
+                    {
+                        kp.Value.Add(new Tuple<object, object>(child_mtm, rec));
+                    }
+                }
+            }
+        }
+
+
+        #endregion
 
     }
 }

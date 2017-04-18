@@ -19,11 +19,14 @@ namespace DKDB
             = new Dictionary<string, Tuple<Type,Type>>();
         //public List<TransactionRecord> transactionRecords = new List<TransactionRecord>();
 
-        public Dictionary<String, MTMRec> MTMToWrite = new Dictionary<string, MTMRec>();
+        public Dictionary<String, List<Tuple<object, object>>> MTMToWrite = new Dictionary<string, List<Tuple<object, object>>>();
 
-        public Dictionary<String, Stream> MTMStreams = new Dictionary<string, Stream>();
 
-        //Returns a specific DbSet for easier access
+        /// <summary>
+        /// Returns a specific DbSet for easier access
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns>Returns a specific DbSet for easier access</returns>
         public object GetDBSetByType(Type t)
         {
             foreach (object o in dbsets)
@@ -37,7 +40,9 @@ namespace DKDB
             return null;
         }
 
-
+        /// <summary>
+        /// Fills the otm list of the read records
+        /// </summary>
         public void CompleteAllOTMRequests()
         {
             bool result = true;
@@ -90,6 +95,17 @@ namespace DKDB
 
         public void initMTMTables()
         {
+            //dosyaları yoksa oluştur
+            foreach(var a in MTMRelations)
+            {
+                String filepath = Path.Combine(this.DatabaseFolder, a.Key) + ".dat";
+                Stream mtmStream;
+                if (!File.Exists(filepath))
+                {
+                    mtmStream = File.Create(filepath + ".dat");
+                    mtmStream.Close();
+                }
+            }
         }
 
         
@@ -147,11 +163,12 @@ namespace DKDB
         public int SaveChanges()
         {
             bool result = false;
-            object[] params1 = { "AddDirectly".ToCharArray() };
-            object[] params2 = { "AddChilds".ToCharArray() };
-            object[] params3 = { "Update".ToCharArray() };
+            object[] params1 = { "AddDirectly".ToCharArray() }; //en başta çünkü child'lara bunun id'si yerleştirilecek
+            object[] params2 = { "AddChilds".ToCharArray() };//childlar eklendikten sonra parentlar güncellenecek
+            object[] params3 = { "Update".ToCharArray() };//güncelleme
             object[] params4 = { "Remove".ToCharArray() };
-            object[][] parameters = { params1, params2, params3, params4 };
+            object[] params5 = { "AddOTM".ToCharArray() }; //en sonda çünkü önce parent eklenmeli, id'ye sahip olmalı.
+            object[][] parameters = { params1, params2, params3, params4, params5 };
             foreach (object[] parameter in parameters)
             {
                 foreach (object o in dbsets)
@@ -165,15 +182,41 @@ namespace DKDB
                 SaveChanges();
             }
             //Mtm kayıtlarını hallet.
-            foreach(KeyValuePair<String,MTMRec> kp in MTMToWrite)
+            foreach(KeyValuePair<String, List<Tuple<object,object>>> kp in MTMToWrite)
             {
-                Stream s; //Streami ata, aç
-                FileOps.Add(s, new List<int>(), MTMRec.piContainer, kp.Value);
-                //Streami kapa, sil listeden.
+                String filepath = Path.Combine(this.DatabaseFolder, kp.Key);
+                Stream mtmStream;
+                mtmStream = File.OpenWrite(filepath + ".dat"); //Streami ata, aç
+                foreach (Tuple<object,object> mtmRecBase in kp.Value)
+                {
+                    MTMRec mtmRec = new MTMRec(
+                        (int)mtmRecBase.Item1.GetType().GetProperty("id").GetValue(mtmRecBase.Item1),
+                        (int)mtmRecBase.Item2.GetType().GetProperty("id").GetValue(mtmRecBase.Item2)
+                        );
+                    FileOps.Add(mtmStream, new List<int>(), MTMRec.piContainer, mtmRec);
+                    //Streami kapa, sil listeden.
+                }
+                mtmStream.Close();
             }
             return 0;
         }
-}
+
+
+        internal void CompleteAllMTMRequests()
+        {
+            bool result = true;
+            //referansları doldur.
+            foreach (object dbset in dbsets)
+            {
+                result &= (bool)dbset.GetType().GetMethod("CompleteMTMRequests").Invoke(dbset, null);
+            }
+            if (result)
+            {
+                CompleteAllOTMRequests(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
+                //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
+            }
+        }
+    }
 
     
 
