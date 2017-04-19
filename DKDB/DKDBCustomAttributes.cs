@@ -9,38 +9,30 @@ namespace DKDB
 {
     public class DKDBCustomAttributes
     {
-        public static List<PropertyInfo> GetReferencePropertyList(Type T, List<Type> ReferenceChecklist)
+        public static Attribute GetAttribute(Type t, PropertyInfo info)
         {
-            List<PropertyInfo> ReferencePropertyList = new List<PropertyInfo>();
-
-            PropertyInfo[] infos = T.GetProperties();
-            foreach (PropertyInfo info in infos)
-            {
-                if (ReferenceChecklist.Contains(info.GetType()))
-                {
-                    ReferencePropertyList.Add(info);
-                }
-            }
-
-            return ReferencePropertyList;
+            return info.GetCustomAttribute(t);
         }
 
-        public static List<Type> GetReferenceChecklist(object DbContext)
+        public static int GetLength(PropertyInfo info)
         {
-            List<Type> RefPropTypes = new List<Type>();
+            DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
+            return attr.MaxLength;
+        }
+        
 
-            PropertyInfo[] infos = DbContext.GetType().GetProperties();
-            foreach (PropertyInfo info in infos)
-            {
-                //Console.WriteLine(info.PropertyType.Name.ToString());
-                if (info.PropertyType.Name.ToString().Contains("DbSet"))
-                {
-                    Console.WriteLine(info.PropertyType.GetGenericArguments()[0].Name);
-                    RefPropTypes.Add(info.PropertyType.GetGenericArguments()[0]);
-                }
-            }
+        public static string GetOTMTarget(PropertyInfo info)
+        {
+            OneToMany attr = (OneToMany)info.GetCustomAttribute(typeof(OneToMany));
+            if (attr == null) return null;
+            return attr.Target;
+        }
 
-            return RefPropTypes;
+        public static Tuple<String,String> GetMTMTargetAndTable(PropertyInfo info)
+        {
+            ManyToMany attr = (ManyToMany)info.GetCustomAttribute(typeof(ManyToMany));
+            if (attr == null) return null;
+            return new Tuple<string, string>(attr.TableName, attr.Target);
         }
 
         public static bool Validator(object o)
@@ -48,16 +40,17 @@ namespace DKDB
             PropertyInfo[] infos = o.GetType().GetProperties();
             foreach (PropertyInfo info in infos)
             {
-                var attrs = (DKDBCustomAttributes.DKDBMaxLengthAttribute[])info.GetCustomAttributes(
-                    typeof(DKDBCustomAttributes.DKDBMaxLengthAttribute), false);
-                foreach (var attr in attrs)
+                if (!info.PropertyType.IsGenericType)
                 {
+                    DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
+
                     Type t = info.PropertyType;
-                    if (attr.Length < ((String)(info.GetValue(o))).Length)
+                    if (attr != null && attr.MaxLength < ((String)(info.GetValue(o))).Length)
                     {
                         return false;
                     }
                 }
+                
             }
             return true;
         }
@@ -68,7 +61,21 @@ namespace DKDB
         [AttributeUsage(AttributeTargets.Property)]
         public class DKDBMaxLengthAttribute : Attribute
         {
-            public int Length { get; set; }
+            public int MaxLength { get; set; }
         }
+
+        [AttributeUsage(AttributeTargets.Property)]
+        public class OneToMany: Attribute
+        {
+            public String Target { get; set; }
+        }
+
+        [AttributeUsage(AttributeTargets.Property)]
+        public class ManyToMany: Attribute
+        {
+            public String Target { get; set; }
+            public String TableName { get; set; }
+        }
+
     }
 }
