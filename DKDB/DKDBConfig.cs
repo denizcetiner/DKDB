@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Reflection;
 
 namespace DKDB
 {
@@ -14,6 +15,14 @@ namespace DKDB
         public void Dispose()
         {
             GC.Collect();
+        }
+
+        public void Initialize()
+        {
+            foreach (PropertyInfo property in this.GetType().GetProperties())
+            {
+
+            }
         }
     }
 }
