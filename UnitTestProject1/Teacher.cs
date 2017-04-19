@@ -10,5 +10,6 @@ namespace UnitTestProject1
     {
         [DKDB.CustomAttr.MaxLengthAttr(MaxLength = 10)]
         public String name { get; set; }
+        public int school_id { get; set; }
     }
 }

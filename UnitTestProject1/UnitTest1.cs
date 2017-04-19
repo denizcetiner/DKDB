@@ -185,6 +185,46 @@ namespace UnitTestProject1
             Assert.IsTrue(deniz.teacher == null && kerem.teacher != null);
         }
 
+        [TestMethod]
+        public void TestMethod16()
+        {
+            TestDbContext ctx = new TestDbContext();
+            School school = new School();
+            school.name = "COMU";
+            ctx.schools.Add(school);
+            ctx.SaveChanges();
+            Assert.IsTrue(school.id == 1);
+        }
+
+        [TestMethod]
+        public void TestMethod17()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.schools.ReadAllRecords();
+            School school = ctx.schools.allRecords.FirstOrDefault(s => s.name.StartsWith("COMU"));
+            Assert.IsTrue(school.id == 1);
+        }
+
+        [TestMethod]
+        public void TestMethod18()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.schools.ReadAllRecords();
+            School school = ctx.schools.allRecords.FirstOrDefault(s => s.name.StartsWith("COMU"));
+            if(school.studentList == null)
+            {
+                school.studentList = new List<Student>();
+            }
+            ctx.students.ReadAllRecords();
+            Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            school.studentList.Add(deniz);
+            ctx.schools.Update(school);
+            ctx.SaveChanges();
+            ctx.students.ReadAllRecords();
+            deniz = ctx.students.allRecords.First(s => s.name.StartsWith("Deniz"));
+            Assert.IsTrue(deniz.school_id == 1);
+        }
+
 
     }
 }

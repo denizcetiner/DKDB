@@ -321,10 +321,23 @@ namespace DKDB
                 {
                     WriteSingleProperty(bw, info, info.GetValue(record));
                 }
+                else if(info.PropertyType.IsGenericType)
+                {
+                    continue;
+                }
                 else
                 {
-                    int id = (int)info.GetValue(record).GetType().GetProperty("id").GetValue(info.GetValue(record));
-                    bw.Write(id);
+                    object child = info.GetValue(record);
+                    int id;
+                    if (child == null)
+                    {
+                        id = -1;
+                    }
+                    else
+                    {
+                        id = (int)child.GetType().GetProperty("id").GetValue(info.GetValue(record));
+                    }
+                        bw.Write(id);
                 }
             }
         }
@@ -385,6 +398,10 @@ namespace DKDB
                 else if (info.PropertyType == typeof(String))
                 {
                     total += CustomAttr.GetLength(info) + filler.Length;
+                }
+                else if(info.PropertyType.IsGenericType)
+                {
+                    continue;
                 }
                 else
                 {

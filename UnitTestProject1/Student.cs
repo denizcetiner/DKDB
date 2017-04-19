@@ -9,5 +9,6 @@ namespace UnitTestProject1
         public String name { get; set; }
         public int age { get; set; }
         public Teacher teacher { get; set; }
+        public int school_id { get; set; }
     }
 }

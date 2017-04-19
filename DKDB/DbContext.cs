@@ -11,6 +11,8 @@ namespace DKDB
 {
     public class DbContext
     {
+        public bool Changed = false;
+
         public String DatabaseFolder;
         public String EndingChars = "/()=";
         public List<Type> dbsetTypes = new List<Type>();
@@ -84,20 +86,21 @@ namespace DKDB
 
 
         #region constructor related
-
-        //klasör yoksa patlıyor xd klasör kontrolü ve oluşturmayı ekle 2dklık iş
+        
         public DbContext(String DatabaseFolder)
         {
+            Directory.CreateDirectory(DatabaseFolder);
             this.DatabaseFolder = DatabaseFolder;
             initSetTypes(); //Creates the list of the DbSet Generic Parameter types
             initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
-            InitDbSetProps(); //
-            initMTMTables();
+            InitDbSetProps(); //Assigns this instance of DbContext to the DbSets, for DbSets to be able to send messages to DbContext.
+            initMTMTables(); //DbContext will be managing the MTM operations. This will create the MTM tables.
         }
 
         public DbContext ()
         {
             DatabaseFolder = @"C:\Deneme";
+            Directory.CreateDirectory(DatabaseFolder);
             initSetTypes(); //Creates the list of the DbSet Generic Parameter types
             initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
             InitDbSetProps(); //
@@ -172,6 +175,14 @@ namespace DKDB
 
         #endregion
 
+        public void SetChanged()
+        {
+            foreach(var a in dbsets)
+            {
+                a.GetType().GetProperty("Changed").SetValue(a, true);
+            }
+        }
+
         public int SaveChanges()
         {
             bool result = false;
@@ -186,12 +197,14 @@ namespace DKDB
             {
                 foreach (object o in dbsets)
                 {
+                    SetChanged();
                     MethodInfo method = o.GetType().GetMethod("SaveChanges");
-                    result = (bool)method.Invoke(o, parameter);
+                    result |= (bool)method.Invoke(o, parameter);
                 }
             }
             if(result) //if any changes happened, they may have triggered new changes.
             {
+                
                 SaveChanges();
             }
             //Mtm kayıtlarını hallet.
@@ -227,7 +240,7 @@ namespace DKDB
             }
             if (result)
             {
-                CompleteAllOTMRequests(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
+                CompleteAllMTMRequests(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
                 //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
             }
         }
