@@ -1,16 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using DKDB;
+﻿using DKDB;
+using System;
 
 namespace UnitTestProject1
 {
-    class Student : BaseClass
+    public class Student : BaseClass
     {
-        String name { get; set; }
-        int age { get; set; }
-
+        [DKDB.CustomAttr.MaxLengthAttr(MaxLength = 10)]
+        public String name { get; set; }
+        public int age { get; set; }
+        public Teacher teacher { get; set; }
     }
 }

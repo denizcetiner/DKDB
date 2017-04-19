@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 
 namespace UnitTestProject1
 {
-    class Teacher
+    public class Teacher : DKDB.BaseClass
     {
+        [DKDB.CustomAttr.MaxLengthAttr(MaxLength = 10)]
+        public String name { get; set; }
     }
 }

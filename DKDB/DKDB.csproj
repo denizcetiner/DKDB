@@ -44,7 +44,7 @@
     <Compile Include="DbContext.cs" />
     <Compile Include="DbSet.cs" />
     <Compile Include="DKDBConfig.cs" />
-    <Compile Include="DKDBCustomAttributes.cs" />
+    <Compile Include="CustomAttr.cs" />
     <Compile Include="FileOps.cs" />
     <Compile Include="MTMRec.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

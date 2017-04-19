@@ -58,9 +58,9 @@ namespace DKDB
             }
             else if (t == typeof(String))
             {
-                DKDBCustomAttributes.DKDBMaxLengthAttribute lengthAttr
-                    = (DKDBCustomAttributes.DKDBMaxLengthAttribute)
-                    DKDBCustomAttributes.GetAttribute(typeof(DKDBCustomAttributes.DKDBMaxLengthAttribute), info);
+                CustomAttr.MaxLengthAttr lengthAttr
+                    = (CustomAttr.MaxLengthAttr)
+                    CustomAttr.GetAttribute(typeof(CustomAttr.MaxLengthAttr), info);
 
                 return RemoveFiller(new string(br.ReadChars(lengthAttr.MaxLength + filler.Length)), filler);
             }
@@ -119,6 +119,11 @@ namespace DKDB
 
             object record = Activator.CreateInstance(t);
             BinaryReader br = new BinaryReader(mainFile);
+
+            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //byte size of a row
+            br.BaseStream.Position = sizeOfRow * (id - 1);
+
+
             foreach (PropertyInfo info in orderedInfos)
             {
                 if (customInfos.Contains(info))
@@ -165,7 +170,7 @@ namespace DKDB
             }
             int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //byte size of a row
             mainFile.Position = (mainFile.Length / sizeOfRow) * ((indexToBeInserted == -1) ? sizeOfRow : indexToBeInserted); //
-            indexToBeInserted = Convert.ToInt32(mainFile.Position / sizeOfRow) + 1;
+            indexToBeInserted = Convert.ToInt32(mainFile.Position / sizeOfRow) + 1; //idler 1den başlasın
             BinaryWriter bw = new BinaryWriter(mainFile);
             foreach (PropertyInfo info in orderedInfos)
             {
@@ -215,7 +220,7 @@ namespace DKDB
             Type t = info.PropertyType;
             if (t == typeof(String))
             {
-                bw.Write(FillString((String)value, filler, DKDBCustomAttributes.GetLength(info)).ToCharArray());
+                bw.Write(FillString((String)value, filler, CustomAttr.GetLength(info)).ToCharArray());
             }
             else if (t == typeof(bool))
             {
@@ -241,6 +246,56 @@ namespace DKDB
             //else if custom info
         }
 
+        public static void MakeReferenceNull(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, PropertyInfo info, Dictionary<int,List<int>> toChange)
+        {
+            //ToChange:
+            //key = silinecek id
+            //list int = key'e eskiden referans eden kayıtlar
+            List<PropertyInfo> primitiveInfos = piContainer.Item1;
+            List<PropertyInfo> customInfos = piContainer.Item2;
+            List<PropertyInfo> orderedInfos = piContainer.Item3;
+            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+
+            int total = 0;
+            foreach(PropertyInfo orderedInfo in orderedInfos) //sütun kaçıncı pozisyonda bul
+            {
+                if(orderedInfo.Name.Equals(info.Name)) //yazacağımız sütunu bulduk.
+                {
+                    break;
+                }
+                else
+                {
+                    if (customInfos.Contains(info))
+                    {
+                        total += sizeof(int); //foreign key
+                    }
+                    else if (info.PropertyType == typeof(Boolean))
+                    {
+                        total += 1; //marshal 4 döndürüyor, yanlışsın marshal.
+                                    //dosyaya yazarken booleanlar 1 yer kaplıyor.
+                    }
+                    else if (info.PropertyType == typeof(String))
+                    {
+                        total += CustomAttr.GetLength(info) + filler.Length;
+                    }
+                    else
+                    {
+                        total += System.Runtime.InteropServices.Marshal.SizeOf(info.PropertyType);
+                    }
+                }
+            }
+            BinaryWriter bw = new BinaryWriter(mainFile);
+            int rowSize = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
+            foreach(KeyValuePair<int, List<int>> kp in toChange)
+            {
+                foreach(int id in kp.Value)
+                {
+                    bw.BaseStream.Position = (id - 1) * rowSize + total;
+                    bw.Write(kp.Key);
+                }
+            }
+        }
+
         /// <summary>
         /// Overwrites a record. Used to update records. (or set the removed flag)
         /// </summary>
@@ -258,7 +313,7 @@ namespace DKDB
 
             int indexToBeInserted = (int)record.GetType().GetProperty("id").GetValue(record);
             int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
-            mainFile.Position = sizeOfRow * indexToBeInserted; //gerekirse düzelt
+            mainFile.Position = sizeOfRow * (indexToBeInserted-1); //gerekirse düzelt
             BinaryWriter bw = new BinaryWriter(mainFile);
             foreach (PropertyInfo info in orderedInfos)
             {
@@ -285,7 +340,7 @@ namespace DKDB
         /// <param name="record"></param>
         public static void Remove(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, Stream metaFile, object record)
         {
-            record.GetType().GetProperty("removedFlag").SetValue(record, true);
+            record.GetType().GetProperty("removed").SetValue(record, true);
             Overwrite(mainFile, piContainer, record);
             //removed indexes ile ilgili iş nerede yapılacak?
         }
@@ -316,23 +371,26 @@ namespace DKDB
         public static int CalculateRowByteSize(List<PropertyInfo> infos, List<PropertyInfo> customInfos, List<PropertyInfo> primitiveInfos)
         {
             int total = 0;
-            total += sizeof(int); //id
             foreach (PropertyInfo info in infos)
             {
                 if (customInfos.Contains(info))
                 {
                     total += sizeof(int); //foreign key
                 }
+                else if (info.PropertyType == typeof(Boolean))
+                {
+                    total += 1; //marshal 4 döndürüyor, yanlışsın marshal.
+                    //dosyaya yazarken booleanlar 1 yer kaplıyor.
+                }
                 else if (info.PropertyType == typeof(String))
                 {
-                    total += DKDBCustomAttributes.GetLength(info) + filler.Length;
+                    total += CustomAttr.GetLength(info) + filler.Length;
                 }
                 else
                 {
                     total += System.Runtime.InteropServices.Marshal.SizeOf(info.PropertyType);
                 }
             }
-            total += sizeof(bool); //removed flag
             return total;
         }
 

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace DKDB
 {
-    public class DKDBCustomAttributes
+    public class CustomAttr
     {
         public static Attribute GetAttribute(Type t, PropertyInfo info)
         {
@@ -16,7 +16,7 @@ namespace DKDB
 
         public static int GetLength(PropertyInfo info)
         {
-            DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
+            MaxLengthAttr attr = (MaxLengthAttr)info.GetCustomAttribute(typeof(MaxLengthAttr));
             return attr.MaxLength;
         }
         
@@ -40,9 +40,9 @@ namespace DKDB
             PropertyInfo[] infos = o.GetType().GetProperties();
             foreach (PropertyInfo info in infos)
             {
-                if (!info.PropertyType.IsGenericType)
+                if (info.PropertyType.Name.Contains("String"))
                 {
-                    DKDBMaxLengthAttribute attr = (DKDBMaxLengthAttribute)info.GetCustomAttribute(typeof(DKDBMaxLengthAttribute));
+                    MaxLengthAttr attr = (MaxLengthAttr)info.GetCustomAttribute(typeof(MaxLengthAttr));
 
                     Type t = info.PropertyType;
                     if (attr != null && attr.MaxLength < ((String)(info.GetValue(o))).Length)
@@ -59,7 +59,7 @@ namespace DKDB
         /// max Length attribute for String properties to be validated by DKDB
         /// </summary>
         [AttributeUsage(AttributeTargets.Property)]
-        public class DKDBMaxLengthAttribute : Attribute
+        public class MaxLengthAttr : Attribute
         {
             public int MaxLength { get; set; }
         }

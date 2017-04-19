@@ -11,16 +11,20 @@ namespace DKDB
 {
     public class DbContext
     {
-        public String DatabaseFolder = @"C:\Deneme";
+        public String DatabaseFolder;
         public String EndingChars = "/()=";
         public List<Type> dbsetTypes = new List<Type>();
         public List<object> dbsets = new List<object>();
+
+        public Dictionary<Type, List<int>> removed = new Dictionary<Type, List<int>>();
+
         public Dictionary<String, Tuple<Type,Type>> MTMRelations
             = new Dictionary<string, Tuple<Type,Type>>();
         //public List<TransactionRecord> transactionRecords = new List<TransactionRecord>();
 
         public Dictionary<String, List<Tuple<object, object>>> MTMToWrite = new Dictionary<string, List<Tuple<object, object>>>();
 
+        
 
         /// <summary>
         /// Returns a specific DbSet for easier access
@@ -59,7 +63,7 @@ namespace DKDB
         }
 
         /// <summary>
-        /// Fills the child objects of the read records.
+        /// Fills the child objects of the read records. (one-to-one)
         /// </summary>
         public void FillOthers()
         {
@@ -67,7 +71,9 @@ namespace DKDB
             //referansları doldur.
             foreach (object dbset in dbsets)
             {
-                result &= (bool)dbset.GetType().GetMethod("FillOtherDbSetRecords").Invoke(dbset, null);
+                object[] parameters = new object[1];
+                parameters[0] = false;
+                result &= (bool)dbset.GetType().GetMethod("FillOtherDbSetRecords").Invoke(dbset, parameters);
             }
             if (result)
             {
@@ -79,22 +85,28 @@ namespace DKDB
 
         #region constructor related
 
-        public DbContext(String DatabaseFolder) : this()
+        //klasör yoksa patlıyor xd klasör kontrolü ve oluşturmayı ekle 2dklık iş
+        public DbContext(String DatabaseFolder)
         {
             this.DatabaseFolder = DatabaseFolder;
-
-        }
-
-        public DbContext ()
-        {
             initSetTypes(); //Creates the list of the DbSet Generic Parameter types
             initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
             InitDbSetProps(); //
             initMTMTables();
         }
 
+        public DbContext ()
+        {
+            DatabaseFolder = @"C:\Deneme";
+            initSetTypes(); //Creates the list of the DbSet Generic Parameter types
+            initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
+            InitDbSetProps(); //
+            initMTMTables();
+        }
+        
         public void initMTMTables()
         {
+
             //dosyaları yoksa oluştur
             foreach(var a in MTMRelations)
             {
@@ -168,7 +180,8 @@ namespace DKDB
             object[] params3 = { "Update".ToCharArray() };//güncelleme
             object[] params4 = { "Remove".ToCharArray() };
             object[] params5 = { "AddOTM".ToCharArray() }; //en sonda çünkü önce parent eklenmeli, id'ye sahip olmalı.
-            object[][] parameters = { params1, params2, params3, params4, params5 };
+            object[] params6 = { "UpdateAfterRemoval".ToCharArray() };
+            object[][] parameters = { params1, params2, params3, params4, params5, params6 };
             foreach (object[] parameter in parameters)
             {
                 foreach (object o in dbsets)
@@ -201,8 +214,10 @@ namespace DKDB
             return 0;
         }
 
-
-        internal void CompleteAllMTMRequests()
+        /// <summary>
+        /// read.
+        /// </summary>
+        public void CompleteAllMTMRequests()
         {
             bool result = true;
             //referansları doldur.
