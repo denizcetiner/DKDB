@@ -11,7 +11,8 @@ namespace DKDB
     {
         #region properties and fields
 
-        public bool Changed { get; set; } = true;
+        //public bool Changed { get; set; } = true;
+        public int RowSize;
 
         private Stream mainFile; //Main file's stream access. Assigned automatically while the DbSet is being constructed.
         private Stream metaFile; //Meta file's stream access. Assigned automatically while the DbSet is being constructed.
@@ -37,7 +38,7 @@ namespace DKDB
 
         public List<T> allRecords = new List<T>();
 
-        private List<Tuple<object, object>> recordsToAddAsChild = new List<Tuple<object, object>>();
+        private List<Tuple<object, object>> recordsToAddAsOTO = new List<Tuple<object, object>>();
         //<owner of the to-be-added record, to-be-added record>
         //explanation: during the SaveChanges operation, this list is iterated.
         //For each _tuple, to-be-added record is inserted into the table file and given an id;
@@ -51,14 +52,18 @@ namespace DKDB
         List<PropertyInfo> customInfos = new List<PropertyInfo>();
         List<PropertyInfo> orderedInfos = new List<PropertyInfo>(); //order in the file
 
-        Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer;
+        Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer;
 
-        private List<Tuple<object, PropertyInfo, int>> RecordsToBeFilled = new List<Tuple<object, PropertyInfo, int>>();
+        private List<Tuple<object, PropertyInfo, int>> OTOReqList = new List<Tuple<object, PropertyInfo, int>>();
         //object=nesne referansı okunup doldurulacak nesne.
         //propertyinfo=doldurulacak property
         //referansın id'si
 
-        private List<Tuple<object, PropertyInfo, List<int>>> RecordsToBeFilledMTM = new List<Tuple<object, PropertyInfo, List<int>>>();
+        private List<Tuple<object, PropertyInfo>> OTMReqList = new List<Tuple<object, PropertyInfo>>();
+        //for reading
+
+        private List<Tuple<object, PropertyInfo, List<int>>> MTMReqList = new List<Tuple<object, PropertyInfo, List<int>>>();
+        //read
 
         public List<Type> OTORelations = new List<Type>();
 
@@ -67,8 +72,7 @@ namespace DKDB
         private List<PropertyInfo> OneToMany_Many = new List<PropertyInfo>();
         //many tarafında olduğumuz infolar (doldurması kompleks, init aşamasında olacak gibi)
 
-        private List<Tuple<object, PropertyInfo>> OTMRequests = new List<Tuple<object, PropertyInfo>>();
-        //for reading
+        
 
         private List<Tuple<String, PropertyInfo, Type>> ManyToMany = new List<Tuple<string, PropertyInfo, Type>>();
         //table adları, ctx'ten bakılacak.
@@ -77,57 +81,6 @@ namespace DKDB
 
         #endregion
 
-        /// <summary>
-        /// Adds a record that is a child of another record.
-        /// </summary>
-        /// <param name="owner">Owner of the record.</param>
-        /// <param name="record">Record.</param>
-        public void AddAsChild(object owner, object record)
-        {
-            //add'in içindeki işlemler. bunun da içinde çocuk nesne olabilir.
-            if (CustomAttr.Validator(record)) //Checks the attributes
-            {
-                foreach (PropertyInfo info in record.GetType().GetProperties())
-                {
-                    if (ctx.dbsetTypes.Contains(info.GetType()))
-                    {
-                        object childObject = info.GetValue(record);
-                        if (childObject != null)
-                        {
-                            int childObjectId = (int)childObject.GetType().GetProperty("id").GetValue(childObject);
-                            if (childObjectId == 0)
-                            {
-                                //Çocuk nesne varsa, ilgili dbset'in "Eklenecek çocuklar" listesine 
-                                object dbset = ctx.GetDBSetByType(childObject.GetType());
-                                object[] parameters = { record, childObject };
-                                //^ record=parent, childobject=child
-                                dbset.GetType().GetMethod("AddAsChild").Invoke(dbset, parameters);
-                            }
-                        }
-
-                    }
-                    //düz yaz
-                    //null ise -1 ya da 0 falan bas 
-                }
-            }
-            recordsToAddAsChild.Add(new Tuple<object, object>(owner, record));
-        }
-
-        public void AddAsOTM(object owner, object child, PropertyInfo info)
-        {
-            this.recordsToAddAsOTM.Add(new Tuple<object, object, PropertyInfo>(owner, child, info));
-        }
-
-        //savechanges çalışırken id'si int olan nesne okunacak, object'in property'sine atanacak.
-        public void AddAsFilled(Tuple<object, PropertyInfo, int> RecordToBeFilled)
-        {
-            this.RecordsToBeFilled.Add(RecordToBeFilled);
-        }
-
-        //public void AddAsFilledMTM(Tuple<object, PropertyInfo, int> RecordToBeFilled)
-        //{
-        //    this.RecordsToBeFilledMTM.Add(RecordToBeFilled);
-        //}
 
         #region constructor related
 
@@ -230,8 +183,10 @@ namespace DKDB
             this.ctx = ctx;
             CreateFilesIfNotExist();
             SetInfos();
-            piContainer = new Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>>(
-                this.primitiveInfos, this.customInfos, this.orderedInfos, OneToMany_One);
+            this.RowSize = FileOps.CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
+            piContainer = new Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int>(
+                this.primitiveInfos, this.customInfos, this.orderedInfos, OneToMany_One, RowSize);
+            
         }
 
         #endregion
@@ -272,11 +227,22 @@ namespace DKDB
                     object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
                     foreach(var eleman in list)
                     {
-                        if ((int)eleman.GetType().GetProperty("id").GetValue(eleman) != 0) continue;
+                        
+                        if ((int)eleman.GetType().GetProperty("id").GetValue(eleman) != 0)
+                        {
+                            if(eleman.GetType().GetProperty(CustomAttr.GetOTMTarget(OTM)).GetValue(eleman) != (object)record)
+                            {
+                                eleman.GetType().GetProperty(CustomAttr.GetOTMTarget(OTM)).SetValue(eleman, record);
+                                object[] parameters_update = { eleman };
+                                object updates = dbset.GetType().GetField("Updates").GetValue(dbset); //içindeki tekrar eklenmesin diye.
+                                updates.GetType().GetMethod("Add").Invoke(updates, parameters_update);
+                            }
+                            continue;
+                        }
                         object[] parameters = new object[3];
                         parameters[0] = record;
                         parameters[1] = eleman;
-                        parameters[2] = CustomAttr.GetOTMTarget(OTM);
+                        parameters[2] = eleman.GetType().GetProperty(CustomAttr.GetOTMTarget(OTM));
                         dbset.GetType().GetMethod("AddAsOTM").Invoke(dbset, parameters);
                     }
                 }
@@ -286,89 +252,15 @@ namespace DKDB
 
                 WriteCompleteMTM(record);
             }
-
+            if (allRecords.Contains(record)) return;
             recordsToAddDirectly.Add(record); 
-        }
-
-        #region stream openers
-
-        public void OpenMainRead()
-        {
-            mainFile = File.OpenRead(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
-        }
-
-        public void OpenMainWrite()
-        {
-            mainFile = File.OpenWrite(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
-        }
-
-        public void OpenMetaRead()
-        {
-            metaFile = File.OpenRead(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
-        }
-
-        public void OpenMetaWrite()
-        {
-            metaFile = File.OpenWrite(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
-        }
-
-        #endregion
-
-
-        #region boş şimdilik, temel şeyler değil
-
-        public void UpdateRange(IEnumerable<T> records)
-        {
-
-        }
-
-        public void AddRange(IEnumerable<T> records)
-        {
-
         }
 
         public void Remove(T record)
         {
             recordsToRemove.Add(record);
         }
-
-        public void RemoveRange(IEnumerable<T> records)
-        {
-
-        }
-
-        public long Count()
-        {
-            ReadAllRecords();
-            return allRecords.LongCount();
-        }
-
-        public T Last()
-        {
-            ReadAllRecords();
-            return allRecords.Last();
-        }
-
-        public T First(Func<T, bool> predicate)
-        {
-            ReadAllRecords();
-            return allRecords.First(predicate);
-        }
-
-        public IEnumerable<T> Where(Func<T, bool> predicate)
-        {
-            ReadAllRecords();
-            return allRecords.Where(predicate);
-        }
-
-        public List<T> All()
-        {
-            ReadAllRecords();
-            return allRecords;
-        }
-
-        #endregion
-
+        
         /// <summary>
         /// Given record will be updated.
         /// </summary>
@@ -380,9 +272,9 @@ namespace DKDB
                 foreach (PropertyInfo info in record.GetType().GetProperties())
                 {
                     bool contains = false;
-                    foreach(var a in ctx.dbsetTypes)
+                    foreach (var a in ctx.dbsetTypes)
                     {
-                        if(a.Name.Equals(info.PropertyType.Name))
+                        if (a.Name.Equals(info.PropertyType.Name))
                         {
                             contains = true;
                         }
@@ -408,90 +300,115 @@ namespace DKDB
                     object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
                     foreach (var eleman in list)
                     {
-                        int eleman_id = (int)eleman.GetType().GetProperty("id").GetValue(eleman);
-                        eleman.GetType().GetProperty(CustomAttr.GetOTMTarget(OTM)).SetValue(eleman, record.GetType().GetProperty("id").GetValue(record));
-                        if (eleman_id != 0)
+                        if ((int)eleman.GetType().GetProperty("id").GetValue(eleman) != 0)
                         {
-                            object[] parameters1 = { eleman };
-                            dbset.GetType().GetMethod("Update").Invoke(dbset, parameters1);
+                            if (eleman.GetType().GetProperty(CustomAttr.GetOTMTarget(OTM)).GetValue(eleman) != (object)record)
+                            {
+                                eleman.GetType().GetProperty(CustomAttr.GetOTMTarget(OTM)).SetValue(eleman, record);
+                                object[] parameters_update = { eleman };
+                                object updates = dbset.GetType().GetField("Updates").GetValue(dbset); //içindeki tekrar eklenmesin diye.
+                                updates.GetType().GetMethod("Add").Invoke(updates, parameters_update);
+                            }
                             continue;
                         }
                         object[] parameters = new object[3];
                         parameters[0] = record;
                         parameters[1] = eleman;
-                        
+
                         parameters[2] = CustomAttr.GetOTMTarget(OTM);
                         dbset.GetType().GetMethod("AddAsOTM").Invoke(dbset, parameters);
                     }
                 }
+
                 this.Updates.Add(record);
             }
         }
 
 
+        /// <summary>
+        /// Adds a record that is a child of another record.
+        /// </summary>
+        /// <param name="owner">Owner of the record.</param>
+        /// <param name="record">Record.</param>
+        public void AddAsChild(object owner, object record)
+        {
+            //add'in içindeki işlemler. bunun da içinde çocuk nesne olabilir.
+            if (CustomAttr.Validator(record)) //Checks the attributes
+            {
+                foreach (PropertyInfo info in record.GetType().GetProperties())
+                {
+                    if (ctx.dbsetTypes.Contains(info.GetType()))
+                    {
+                        object childObject = info.GetValue(record);
+                        if (childObject != null)
+                        {
+                            int childObjectId = (int)childObject.GetType().GetProperty("id").GetValue(childObject);
+                            if (childObjectId == 0)
+                            {
+                                //Çocuk nesne varsa, ilgili dbset'in "Eklenecek çocuklar" listesine 
+                                object dbset = ctx.GetDBSetByType(childObject.GetType());
+                                object[] parameters = { record, childObject };
+                                //^ record=parent, childobject=child
+                                dbset.GetType().GetMethod("AddAsChild").Invoke(dbset, parameters);
+                            }
+                        }
+
+                    }
+                    //düz yaz
+                    //null ise -1 ya da 0 falan bas 
+                }
+            }
+            if (allRecords.Contains((T)record)) return;
+            recordsToAddAsOTO.Add(new Tuple<object, object>(owner, record));
+        }
+
+        public void AddAsOTM(object owner, object child, PropertyInfo info)
+        {
+            this.recordsToAddAsOTM.Add(new Tuple<object, object, PropertyInfo>(owner, child, info));
+        }
+
+        //savechanges çalışırken id'si int olan nesne okunacak, object'in property'sine atanacak.
+        public void AddOTOReq(Tuple<object, PropertyInfo, int> RecordToBeFilled)
+        {
+            this.OTOReqList.Add(RecordToBeFilled);
+        }
 
         /// <summary>
-        /// Completes the child assignment requests ordered by the parent objects.
+        /// For call by reflection from ctx. Adds an OTM (one to many) request to the requests list.
         /// </summary>
-        /// <returns>Returns value to be used by DbContext wrapper function "FillOthers".</returns>
-        public bool FillOtherDbSetRecords(bool readRemoved = false)
+        /// <param name="req"></param>
+        public void AddOTMReq(Tuple<object, PropertyInfo> req)
         {
-            bool result = false;
-            while (RecordsToBeFilled.Count() != 0)
-            {
-                result = true;
-                //doldur
-                Tuple<object, PropertyInfo, int> log = RecordsToBeFilled[0];
-                PropertyInfo info = log.Item2;
-                object target = log.Item1;
-                int fkid = log.Item3;
-                RecordsToBeFilled.RemoveAt(0);
-                object found = allRecords.FirstOrDefault(r => (int)r.GetType().GetProperty("id").GetValue(r) == fkid);
-                if(found != null)
-                {
-                    log.Item2.SetValue(log.Item1, found);
-                    continue;
-                }
-                T rec = Read(fkid);
-                if(readRemoved || !(bool)rec.GetType().GetProperty("removed").GetValue(rec))
-                {
-                    allRecords.Add(rec);
-                    log.Item2.SetValue(log.Item1, rec);//critical work completed here
-                }
-                 
-
-            }
-            return result; //returns false if nothing is done, otherwise true.
-        }
-
-        public void ReadAllRecords(bool ReadRemoved = false)
-        {
-            if(!Changed)
-            {
-                return;
-            }
-            allRecords = new List<T>();
-            {
-                OpenMainRead();
-                int line = Convert.ToInt32(mainFile.Length) / FileOps.CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
-                for (int i = 0; i < line; i++)
-                {
-                    object rec = Read(i + 1, true);
-                    if(ReadRemoved || !(bool)rec.GetType().GetProperty("removed").GetValue(rec))
-                    {
-                        allRecords.Add((T)rec);
-                    }
-                }
-                mainFile.Close();
-                ctx.FillOthers();
-                ctx.CompleteAllOTMRequests();
-                ctx.CompleteAllMTMRequests();
-                Changed = false;
-            }
+            OTMReqList.Add(req);
         }
 
 
+        #region stream openers
 
+        public void OpenMainRead()
+        {
+            mainFile = File.OpenRead(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
+        }
+
+        public void OpenMainWrite()
+        {
+            mainFile = File.OpenWrite(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + ".dat"));
+        }
+
+        public void OpenMetaRead()
+        {
+            metaFile = File.OpenRead(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
+        }
+
+        public void OpenMetaWrite()
+        {
+            metaFile = File.OpenWrite(Path.Combine(ctx.DatabaseFolder, this.GetType().GetGenericArguments()[0].Name + "_meta.dat"));
+        }
+
+        #endregion
+        
+        
+        
         /// <summary>
         /// Completes some of the changes in the dbset chosen by the command.
         /// </summary>
@@ -507,7 +424,7 @@ namespace DKDB
                     Tuple<object, object, PropertyInfo> rec = recordsToAddAsOTM[0];
                     OpenMainWrite();
                     rec.Item2.GetType().GetProperty(rec.Item3.Name)
-                        .SetValue(rec.Item2, rec.Item1.GetType().GetProperty("id").GetValue(rec.Item1));
+                        .SetValue(rec.Item2, rec.Item1);
                     int fk = FileOps.Add(mainFile, removedIndexes, piContainer, rec.Item2);
                     rec.Item2.GetType().GetProperty(rec.Item3.Name).SetValue(rec.Item2, fk);
                     result = true;
@@ -524,6 +441,7 @@ namespace DKDB
                     result = true;
                     int id = FileOps.Add(mainFile, removedIndexes, piContainer, recordsToAddDirectly[0]);
                     recordsToAddDirectly[0].GetType().GetProperty("id").SetValue(recordsToAddDirectly[0], id);
+                    allRecords.Add(recordsToAddDirectly[0]);
                     recordsToAddDirectly.RemoveAt(0);
                 }
                 mainFile.Close();
@@ -531,21 +449,22 @@ namespace DKDB
             if (command == "AddChilds")
             {
                 OpenMainWrite();
-                while (recordsToAddAsChild.Count() != 0)
+                while (recordsToAddAsOTO.Count() != 0)
                 {
                     result = true;
                     //item1=parent, item2=child
-                    T record = (T)recordsToAddAsChild[0].Item2;
+                    T record = (T)recordsToAddAsOTO[0].Item2;
                     int fk = FileOps.Add(mainFile, removedIndexes, piContainer, record);
                     record.GetType().GetProperty("id").SetValue(record, fk);
-                    Type ownerType = recordsToAddAsChild[0].Item1.GetType();
+                    Type ownerType = recordsToAddAsOTO[0].Item1.GetType();
                     Type ownerDbSetType = ctx.dbsetTypes.Where(a => a.ToString().Equals(ownerType.ToString())).ElementAt(0);
                     object ownerDbSet = ctx.GetDBSetByType(ownerDbSetType);
                     object[] parameters = new object[1];
-                    parameters[0] = recordsToAddAsChild[0].Item1;
-                    //Explained under recordsToAddAsChild declaration.
+                    parameters[0] = recordsToAddAsOTO[0].Item1;
+                    //Explained under recordsToAddAsOTO declaration.
                     ownerDbSet.GetType().GetMethod("Update").Invoke(ownerDbSet, parameters);
-                    recordsToAddAsChild.RemoveAt(0);
+                    allRecords.Add(record);
+                    recordsToAddAsOTO.RemoveAt(0);
                 }
                 mainFile.Close();
             }
@@ -575,6 +494,7 @@ namespace DKDB
                 while (recordsToRemove.Count() != 0)
                 {
                     result = true;
+                    recordsToRemove[0].GetType().GetProperty("removed").SetValue(recordsToRemove[0], true);
                     FileOps.Remove(mainFile, piContainer, metaFile, recordsToRemove[0]);
                     if(!ctx.removed.Any(kp=>kp.Key == typeof(T)))
                     {
@@ -592,7 +512,8 @@ namespace DKDB
                 Dictionary<int, List<int>> toChange = new Dictionary<int, List<int>>();
                 foreach(KeyValuePair<Type, List<int>> kp in ctx.removed)
                 {
-                    foreach(PropertyInfo info in this.GetType().GetProperties())
+                    List<PropertyInfo> props = this.GetType().GetGenericArguments()[0].GetProperties().ToList();
+                    foreach (PropertyInfo info in props)
                     {
                         if (info.PropertyType.Name.Equals(kp.Key.Name))
                         {
@@ -604,16 +525,18 @@ namespace DKDB
                         }
                     }
                 }
-                ReadAllRecords();
                 foreach(T rec in allRecords)
                 {
                     foreach(PropertyInfo column in toChangeColumns)
                     {
                         foreach(KeyValuePair<int, List<int>> kp in toChange)
                         {
-                            if((int)rec.GetType().GetProperty(column.Name).GetValue(rec) == kp.Key)
+                            object child_rec = rec.GetType().GetProperty(column.Name).GetValue(rec);
+                            if ((int)child_rec.GetType().GetProperty("id").GetValue(child_rec) == kp.Key)
                             {
-                                kp.Value.Add((int)rec.GetType().GetProperty("id").GetValue(rec));
+                                int id = (int)rec.GetType().GetProperty("id").GetValue(rec);
+                                rec.GetType().GetProperty(column.Name).SetValue(rec, null);
+                                kp.Value.Add(id);
                             }
                         }
                     }
@@ -622,6 +545,7 @@ namespace DKDB
                 {
                     OpenMainWrite();
                     FileOps.MakeReferenceNull(mainFile, piContainer, column, toChange);
+                    mainFile.Close();
                 }
             }
 
@@ -630,89 +554,108 @@ namespace DKDB
 
         
 
-        /// <summary>
-        /// Reads a single record from the file.
-        /// </summary>
-        /// <param name="id">Id of the record to be read.</param>
-        /// <param name="CameByAllFunction">Optional parameter, set to true if called by ReadAll function.</param>
-        /// <returns></returns>
-        public T Read(int id, bool CameByAllFunction = false)
+        public void ReadAllPlain(bool ReadRemoved = false)
         {
-            if (!CameByAllFunction)
+            OpenMainRead();
+            int line = Convert.ToInt32(mainFile.Length) / RowSize;
+            for (int id = 0; id < line; id++)
             {
-                OpenMainRead();
-            } //else, the stream should be already opened before.
-            Tuple<object, Dictionary<PropertyInfo, int>> fillingLog;
-            //object = the record that it's childs will be read and assigned to.
-            //propertyinfo = propertyinfo of a child of the record
-            //int = id of the child to be read.
-            //for one-to-one relation or one-to-many relation's many side
-            fillingLog = FileOps.ReadSingleRecord(mainFile, id, typeof(T), piContainer);
-            foreach (KeyValuePair<PropertyInfo, int> kp in fillingLog.Item2)
-            {
-                object dbset = ctx.GetDBSetByType(kp.Key.PropertyType);
-                if(kp.Value == -1) //null, okumaya çalışma!
+                Tuple<object, Dictionary<PropertyInfo, int>> fillingLog;
+                fillingLog = FileOps.ReadSingleRecord(mainFile, id+1, typeof(T), piContainer);
+                object rec = fillingLog.Item1;
+                if (ReadRemoved || !(bool)rec.GetType().GetProperty("removed").GetValue(rec))
                 {
-                    continue; 
+                    allRecords.Add((T)rec);
+                    foreach (KeyValuePair<PropertyInfo, int> kp in fillingLog.Item2) //OTOReq'ler
+                    {
+                        object dbset = ctx.GetDBSetByType(kp.Key.PropertyType);
+                        if (kp.Value == -1) //null, okumaya çalışma!
+                        {
+                            continue;
+                        }
+                        object[] parameters = { kp.Value };
+                        Tuple<object, PropertyInfo, int> RecordToBeFilled = new Tuple<object, PropertyInfo, int>(fillingLog.Item1, kp.Key, kp.Value);
+                        
+                    object[] parameters2 = { RecordToBeFilled };
+                        dbset.GetType().GetMethod("AddOTOReq").Invoke(dbset, parameters2);
+
+                    }
+
+                    foreach (PropertyInfo OTM in OneToMany_One)
+                    {
+                        if (fillingLog.Item1.GetType().GetProperty(OTM.Name).GetValue(fillingLog.Item1) == null)
+                        {
+                            fillingLog.Item1.GetType().GetProperty(OTM.Name).SetValue(fillingLog.Item1.GetType().GetProperty(OTM.Name), Activator.CreateInstance(OTM.PropertyType));
+                        }
+                        object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
+                        object[] parameters = { new Tuple<object, PropertyInfo>(fillingLog.Item1, OTM) };
+                        dbset.GetType().GetMethod("AddOTMReq").Invoke(dbset, parameters);
+
+                    }
+
+                    //MTM
+                    ReadMTM(fillingLog.Item1);
                 }
-                object[] parameters = { kp.Value };
-                Tuple<object, PropertyInfo, int> RecordToBeFilled = new Tuple<object, PropertyInfo, int>(fillingLog.Item1, kp.Key, kp.Value);
-                object[] parameters2 = { RecordToBeFilled };
-                dbset.GetType().GetMethod("AddAsFilled").Invoke(dbset, parameters2);
-
             }
-
-            foreach (PropertyInfo OTM in OneToMany_One)
-            {
-                if(fillingLog.Item1.GetType().GetProperty(OTM.Name).GetValue(fillingLog.Item1) == null)
-                {
-                    fillingLog.Item1.GetType().GetProperty(OTM.Name).SetValue(fillingLog.Item1.GetType().GetProperty(OTM.Name), Activator.CreateInstance(OTM.PropertyType));
-                }
-                object dbset = ctx.GetDBSetByType(OTM.PropertyType.GetGenericArguments()[0]);
-                object[] parameters = { new Tuple<object, PropertyInfo>(fillingLog.Item1, OTM) };
-                dbset.GetType().GetMethod("AddAsOTMRequest").Invoke(dbset, parameters);
-                
-            }
-
-            //MTM
-            ReadMTM(fillingLog.Item1);
-
-            if (!CameByAllFunction)
-            {
-                mainFile.Close();
-                ctx.FillOthers();
-                ctx.CompleteAllOTMRequests();
-                ctx.CompleteAllMTMRequests();
-                
-            } //else, the stream will be closed and the FillOthers will be called in the wrapper function.
-            return (T)fillingLog.Item1;
-
+            mainFile.Close();
         }
 
+        public T Get(int id)
+        {
+            return allRecords.FirstOrDefault(rec => (int)rec.GetType().GetProperty("id").GetValue(rec) == id);
+        }
 
-        #region OTM
+        #region fill
 
         /// <summary>
-        /// For call by reflection from ctx. Adds an OTM (one to many) request to the requests list.
+        /// Completes the child assignment requests ordered by the parent objects.
         /// </summary>
-        /// <param name="req"></param>
-        public void AddAsOTMRequest(Tuple<object, PropertyInfo> req)
+        /// <returns>Returns value to be used by DbContext wrapper function "FillOthers".</returns>
+        public bool FillOTO(bool readRemoved = false)
         {
-            OTMRequests.Add(req);
+            bool result = false;
+            while (OTOReqList.Count() != 0)
+            {
+                result = true;
+                //doldur
+                Tuple<object, PropertyInfo, int> log = OTOReqList[0];
+                PropertyInfo info = log.Item2;
+                object target = log.Item1;
+                int fkid = log.Item3;
+                OTOReqList.RemoveAt(0);
+                object found = allRecords.FirstOrDefault(r => (int)r.GetType().GetProperty("id").GetValue(r) == fkid);
+                if (found != null)
+                {
+                    log.Item2.SetValue(log.Item1, found);
+                    continue;
+                }
+                //T rec = Read(fkid);
+                T rec = Get(fkid);
+                if (readRemoved || !(bool)rec.GetType().GetProperty("removed").GetValue(rec))
+                {
+                    allRecords.Add(rec);
+                    log.Item2.SetValue(log.Item1, rec);//critical work completed here
+                }
+
+
+            }
+            return result; //returns false if nothing is done, otherwise true.
         }
+
 
         /// <summary>
         /// (Read)Fills the 'one' side of OTM relations for each request
         /// </summary>
-        public bool CompleteOTMRequests()
+        public bool FillOTM()
         {
             bool result = false;
-            while (OTMRequests.Count() > 0)
+            while (OTMReqList.Count() > 0)
             {
                 result = true;
+
                  //bunu düzelt sürekli okuyup durmasın. kontrol falan koy savechanges olduktan sonra bir defa 
                 //tekrar okusun sadece.
-                Tuple<object, PropertyInfo> request = OTMRequests[0];
+                Tuple<object, PropertyInfo> request = OTMReqList[0];
                 int id = (int)request.Item1.GetType().GetProperty("id").GetValue(request.Item1);
                 String otm_target = CustomAttr.GetOTMTarget(request.Item2);
                 List<T> filtered = new List<T>();
@@ -720,23 +663,58 @@ namespace DKDB
                 {
                     object target = record.GetType().GetProperty(otm_target).GetValue(record);
                     if(target == null) { continue; }
-                    int opposite_id = (int)target;
+                    int opposite_id = (int)target.GetType().GetProperty("id").GetValue(target);
                     if (opposite_id == id)
                     {
                         IList list = request.Item1.GetType().GetProperty(request.Item2.Name).GetValue(request.Item1) as IList;
                         list.Add(record);
                     }
                 }
-                OTMRequests.RemoveAt(0);
+                OTMReqList.RemoveAt(0);
+            }
+            return result;
+        }
+        
+
+        /// <summary>
+        /// Read requests for performance
+        /// </summary>
+        public bool FillMTM()
+        {
+            bool result = false;
+            while (this.MTMReqList.Count() > 0)
+            {
+                result = true;
+                List<int> toGetList = MTMReqList[0].Item3;
+                OpenMainRead();
+                object rec = MTMReqList[0].Item1;
+                IList a = rec.GetType().GetProperty(MTMReqList[0].Item2.Name).GetValue(rec) as IList;
+                if (a == null)
+                {
+                    Type d1 = typeof(List<>);
+                    Type[] typeArgs = { this.GetType().GetGenericArguments()[0] };
+                    Type constructed = d1.MakeGenericType(typeArgs);
+                    a = (IList)Activator.CreateInstance(constructed);
+                }
+                foreach (int toGet in toGetList)
+                {
+                    object found = allRecords.FirstOrDefault(r => (int)r.GetType().GetProperty("id").GetValue(r) == toGet);
+                    if (found != null)
+                    {
+                        a.Add(found);
+                        continue;
+                    }
+                    T toAdd = Get(toGet);
+                    a.Add(toAdd);
+                }
+                mainFile.Close();
             }
             return result;
         }
 
-
-
         #endregion
-
-        #region MTM
+        
+        
 
         /// <summary>
         /// Reads the middle table of many-to-many relationship. Bad performance currently, because it reads the
@@ -786,48 +764,13 @@ namespace DKDB
 
                 parameters[0] = request; //list of ids of the records that we want to read from opposite db
                 List<Tuple<object, PropertyInfo, List<int>>> rtbfMTM = opposite_dbset.GetType()
-                    .GetProperty("RecordsToBeFilledMTM").GetValue(opposite_dbset) as List<Tuple<object, PropertyInfo, List<int>>>;
+                    .GetProperty("MTMReqList").GetValue(opposite_dbset) as List<Tuple<object, PropertyInfo, List<int>>>;
                 rtbfMTM.GetType().GetMethod("AddRange").Invoke(rtbfMTM, parameters);
                 
             }
         }
 
 
-        /// <summary>
-        /// Read requests for performance
-        /// </summary>
-        public bool CompleteMTMRequests()
-        {
-            bool result = false;
-            while(this.RecordsToBeFilledMTM.Count()>0)
-            {
-                result = true;
-                List<int> toGetList = RecordsToBeFilledMTM[0].Item3;
-                OpenMainRead();
-                object rec = RecordsToBeFilledMTM[0].Item1;
-                IList a = rec.GetType().GetProperty(RecordsToBeFilledMTM[0].Item2.Name).GetValue(rec) as IList;
-                if (a == null)
-                {
-                    Type d1 = typeof(List<>);
-                    Type[] typeArgs = { this.GetType().GetGenericArguments()[0] };
-                    Type constructed = d1.MakeGenericType(typeArgs);
-                    a = (IList)Activator.CreateInstance(constructed);
-                }
-                foreach (int toGet in toGetList)
-                {
-                    object found = allRecords.FirstOrDefault(r => (int)r.GetType().GetProperty("id").GetValue(r) == toGet);
-                    if (found != null)
-                    {
-                        a.Add(found);
-                        continue;
-                    }
-                    T toAdd = Read(toGet, true);
-                    a.Add(toAdd);
-                }
-                mainFile.Close();
-            }
-            return result;
-        }
 
         /// <summary>
         /// Adds the mtm list 
@@ -871,53 +814,7 @@ namespace DKDB
                 }
             }
         }
-
-
-        #endregion
+        
 
     }
 }
-
-
-//public void Update(T record)
-//{
-//    ReadAllRecords();
-//    PropertyInfo id = record.GetType().GetProperty("id");
-//    //Orijinal üzerine daha sonra tüm değişiklikler sırayla uygulanacak.
-//    T original = allRecords.FirstOrDefault(u => id.GetValue(u) == id.GetValue(record));
-
-//    //Değişiklikleri tespit et.
-//    foreach (PropertyInfo info in record.GetType().GetProperties())
-//    {
-//        if (primitiveInfos.Contains(info) && info.GetValue(record) != info.GetValue(original))
-//        {
-//            if (!Updates.ContainsKey(original))
-//            {
-//                Dictionary<PropertyInfo, object> dict = new Dictionary<PropertyInfo, object>();
-//                dict.Add(info, info.GetValue(record));
-//                Updates.Add(original, dict);
-//            }
-//            else
-//            {
-//                Updates.FirstOrDefault(kp => kp.Key.Equals(original)).Value.Add(info, info.GetValue(record));
-//            }
-//        }
-//        else if (customInfos.Contains(info) && info.GetValue(record) != info.GetValue(original))
-//        {
-//            //Update listesinde yoksa
-//            if (!Updates.ContainsKey(original))
-//            {
-//                //Anahtar ve değer oluştur
-//                Dictionary<PropertyInfo, object> dict = new Dictionary<PropertyInfo, object>();
-//                dict.Add(info, info.GetValue(record));
-//                Updates.Add(original, dict);
-//            }
-//            //Update listesinde varsa
-//            else
-//            {
-//                //Değerdeki listeye değişim ekle
-//                Updates.FirstOrDefault(kp => kp.Key.Equals(original)).Value.Add(info, info.GetValue(record));
-//            }
-//        }
-//    }
-//}

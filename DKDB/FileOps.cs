@@ -11,6 +11,7 @@ namespace DKDB
     public static class FileOps
     {
         public static String filler = "/()=";
+        
 
         #region reading operations
 
@@ -44,7 +45,7 @@ namespace DKDB
         /// <param name="customInfos">To check where the current info belongs</param>
         /// <param name="info">İnfo to be read</param>
         /// <returns>Returns the read value in object form</returns>
-        public static object ReadSingleProperty(BinaryReader br, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, PropertyInfo info)
+        public static object ReadSingleProperty(BinaryReader br, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, PropertyInfo info)
         {
             List<PropertyInfo> primitiveInfos = piContainer.Item1;
             List<PropertyInfo> customInfos = piContainer.Item2;
@@ -108,19 +109,19 @@ namespace DKDB
         /// <param name="infos">Ordered info list to be read from the file.</param>
         /// <returns>Returns the record, and list of the childs to be read if exists.</returns>
         public static Tuple<object, Dictionary<PropertyInfo, int>> ReadSingleRecord(Stream mainFile, int id, Type t,
-            Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer)
+            Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer)
         {
             List<PropertyInfo> primitiveInfos = piContainer.Item1;
             List<PropertyInfo> customInfos = piContainer.Item2;
             List<PropertyInfo> orderedInfos = piContainer.Item3;
             List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+            int sizeOfRow = piContainer.Item5;
 
             Dictionary<PropertyInfo, int> childObjects = new Dictionary<PropertyInfo, int>();
 
             object record = Activator.CreateInstance(t);
             BinaryReader br = new BinaryReader(mainFile);
 
-            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //byte size of a row
             br.BaseStream.Position = sizeOfRow * (id - 1);
 
 
@@ -154,7 +155,7 @@ namespace DKDB
         /// <param name="infos">Properties that will be stored in database. (To exclude notmapped properties)</param>
         /// <param name="record">Record to be inserted</param>
         /// <returns>Returns the id of last inserted record</returns>
-        public static int Add(Stream mainFile, List<int> removedIndexes, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, object record)
+        public static int Add(Stream mainFile, List<int> removedIndexes, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, object record)
         {
             List<PropertyInfo> primitiveInfos = piContainer.Item1;
             List<PropertyInfo> customInfos = piContainer.Item2;
@@ -168,7 +169,7 @@ namespace DKDB
                 Overwrite(mainFile, piContainer, record);
                 return indexToBeInserted;
             }
-            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos); //byte size of a row
+            int sizeOfRow = piContainer.Item5; //byte size of a row
             mainFile.Position = (mainFile.Length / sizeOfRow) * ((indexToBeInserted == -1) ? sizeOfRow : indexToBeInserted); //
             indexToBeInserted = Convert.ToInt32(mainFile.Position / sizeOfRow) + 1; //idler 1den başlasın
             BinaryWriter bw = new BinaryWriter(mainFile);
@@ -246,7 +247,7 @@ namespace DKDB
             //else if custom info
         }
 
-        public static void MakeReferenceNull(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, PropertyInfo info, Dictionary<int,List<int>> toChange)
+        public static void MakeReferenceNull(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>,int> piContainer, PropertyInfo info, Dictionary<int,List<int>> toChange)
         {
             //ToChange:
             //key = silinecek id
@@ -265,33 +266,33 @@ namespace DKDB
                 }
                 else
                 {
-                    if (customInfos.Contains(info))
+                    if (customInfos.Contains(orderedInfo))
                     {
                         total += sizeof(int); //foreign key
                     }
-                    else if (info.PropertyType == typeof(Boolean))
+                    else if (orderedInfo.PropertyType == typeof(Boolean))
                     {
                         total += 1; //marshal 4 döndürüyor, yanlışsın marshal.
                                     //dosyaya yazarken booleanlar 1 yer kaplıyor.
                     }
-                    else if (info.PropertyType == typeof(String))
+                    else if (orderedInfo.PropertyType == typeof(String))
                     {
-                        total += CustomAttr.GetLength(info) + filler.Length;
+                        total += CustomAttr.GetLength(orderedInfo) + filler.Length;
                     }
                     else
                     {
-                        total += System.Runtime.InteropServices.Marshal.SizeOf(info.PropertyType);
+                        total += System.Runtime.InteropServices.Marshal.SizeOf(orderedInfo.PropertyType);
                     }
                 }
             }
             BinaryWriter bw = new BinaryWriter(mainFile);
-            int rowSize = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
+            int rowSize = piContainer.Item5;
             foreach(KeyValuePair<int, List<int>> kp in toChange)
             {
                 foreach(int id in kp.Value)
                 {
                     bw.BaseStream.Position = (id - 1) * rowSize + total;
-                    bw.Write(kp.Key);
+                    bw.Write(-1);
                 }
             }
         }
@@ -304,7 +305,7 @@ namespace DKDB
         /// <param name="primitiveInfos">To compare.</param>
         /// <param name="orderedInfos">The infos in the order of being written to the file.</param>
         /// <param name="record">Record to be overwritten.</param>
-        public static void Overwrite(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, object record)
+        public static void Overwrite(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, object record)
         {
             List<PropertyInfo> primitiveInfos = piContainer.Item1;
             List<PropertyInfo> customInfos = piContainer.Item2;
@@ -312,7 +313,7 @@ namespace DKDB
             List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
 
             int indexToBeInserted = (int)record.GetType().GetProperty("id").GetValue(record);
-            int sizeOfRow = CalculateRowByteSize(orderedInfos, customInfos, primitiveInfos);
+            int sizeOfRow = piContainer.Item5;
             mainFile.Position = sizeOfRow * (indexToBeInserted-1); //gerekirse düzelt
             BinaryWriter bw = new BinaryWriter(mainFile);
             foreach (PropertyInfo info in orderedInfos)
@@ -351,7 +352,7 @@ namespace DKDB
         /// <param name="orderedInfos"></param>
         /// <param name="metaFile">MetaFile stream of the dbset. To update the removed indexes. (Burada mı yapılacak? düşün.)</param>
         /// <param name="record"></param>
-        public static void Remove(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer, Stream metaFile, object record)
+        public static void Remove(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, Stream metaFile, object record)
         {
             record.GetType().GetProperty("removed").SetValue(record, true);
             Overwrite(mainFile, piContainer, record);

@@ -44,7 +44,7 @@ namespace UnitTestProject1
         public void TestMethod3()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             List<Student> studentsList = ctx.students.allRecords;
             Assert.IsTrue(studentsList.Count == 1);
         }
@@ -53,7 +53,7 @@ namespace UnitTestProject1
         public void TestMethod4()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             List<Student> studentsList = ctx.students.allRecords;
             Student deniz = studentsList
                 .FirstOrDefault(student => student.name.StartsWith("Deniz"));
@@ -77,7 +77,7 @@ namespace UnitTestProject1
         public void TestMethod6()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Assert.IsTrue(ctx.students.allRecords.Count == 2);
         }
 
@@ -96,7 +96,7 @@ namespace UnitTestProject1
         public void TestMethod8()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.teachers.ReadAllRecords();
+            ctx.ReadAll();
             Teacher teacher = ctx.teachers.allRecords
                 .FirstOrDefault(t => t.name.StartsWith("Bora"));
 
@@ -107,10 +107,9 @@ namespace UnitTestProject1
         public void TestMethod9()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.teachers.ReadAllRecords();
+            ctx.ReadAll();
             Teacher teacher = ctx.teachers.allRecords
                 .FirstOrDefault(t => t.name.StartsWith("Bora"));
-            ctx.students.ReadAllRecords();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s=>s.name.StartsWith("Deniz"));
             deniz.teacher = teacher;
             ctx.students.Update(deniz);
@@ -121,10 +120,10 @@ namespace UnitTestProject1
         public void TestMethod10()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.teachers.ReadAllRecords();
+            ctx.ReadAll();
             Teacher teacher = ctx.teachers.allRecords
                 .FirstOrDefault(t => t.name.StartsWith("Bora"));
-            ctx.students.ReadAllRecords();
+            
             Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
             kerem.teacher = teacher;
             ctx.students.Update(kerem);
@@ -135,7 +134,7 @@ namespace UnitTestProject1
         public void TestMethod11()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             Assert.IsTrue(deniz.teacher.name.Equals("Bora U."));
         }
@@ -143,7 +142,7 @@ namespace UnitTestProject1
         public void TestMethod12()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             Assert.IsTrue(deniz.teacher.name.Equals("Bora U."));
         }
@@ -153,7 +152,7 @@ namespace UnitTestProject1
             TestDbContext ctx = new TestDbContext();
             Teacher t = new Teacher();
             t.name = "ismail k.";
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             deniz.teacher = t;
             ctx.students.Update(deniz);
@@ -165,11 +164,11 @@ namespace UnitTestProject1
         public void TestMethod14()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             ctx.teachers.Remove(deniz.teacher);
             ctx.SaveChanges();
-            ctx.teachers.ReadAllRecords(true);
+            
             Teacher teacher = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("Bora"));
             Teacher teacher2 = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("ismail"));
             Assert.IsTrue(teacher.removed == false && teacher2.removed == true);
@@ -179,7 +178,7 @@ namespace UnitTestProject1
         public void TestMethod15()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
             Assert.IsTrue(deniz.teacher == null && kerem.teacher != null);
@@ -189,42 +188,61 @@ namespace UnitTestProject1
         public void TestMethod16()
         {
             TestDbContext ctx = new TestDbContext();
-            School school = new School();
-            school.name = "COMU";
-            ctx.schools.Add(school);
-            ctx.SaveChanges();
-            Assert.IsTrue(school.id == 1);
+            ctx.ReadAll();
+            Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
+            Teacher teacher = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("Bora"));
+            Assert.IsTrue(!teacher.student.Contains(deniz) && teacher.student.Contains(kerem));
         }
 
         [TestMethod]
         public void TestMethod17()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.schools.ReadAllRecords();
-            School school = ctx.schools.allRecords.FirstOrDefault(s => s.name.StartsWith("COMU"));
-            Assert.IsTrue(school.id == 1);
+            ctx.ReadAll();
+            Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
+            Teacher teacher = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("Bora"));
+            Assert.IsTrue(!teacher.student.Contains(deniz) && teacher.student.Contains(kerem));
         }
 
         [TestMethod]
         public void TestMethod18()
         {
             TestDbContext ctx = new TestDbContext();
-            ctx.schools.ReadAllRecords();
-            School school = ctx.schools.allRecords.FirstOrDefault(s => s.name.StartsWith("COMU"));
-            if(school.studentList == null)
-            {
-                school.studentList = new List<Student>();
-            }
-            ctx.students.ReadAllRecords();
+            ctx.ReadAll();
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
-            school.studentList.Add(deniz);
-            ctx.schools.Update(school);
+            Teacher teacher = new Teacher();
+            teacher.name = "ali murat";
+            teacher.student.Add(deniz);
+            ctx.teachers.Add(teacher);
             ctx.SaveChanges();
-            ctx.students.ReadAllRecords();
-            deniz = ctx.students.allRecords.First(s => s.name.StartsWith("Deniz"));
-            Assert.IsTrue(deniz.school_id == 1);
+            Assert.IsTrue(ctx.teachers.allRecords.Count == 2);
         }
 
+        [TestMethod]
+        public void TestMethod19()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
+            Teacher teacher = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("ali"));
+            teacher.student.Add(kerem);
+            ctx.teachers.Update(teacher);
+            ctx.SaveChanges();
+            Assert.IsTrue(kerem.teacher == teacher);
+        }
+
+        [TestMethod]
+        public void TestMethod20()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
+            Teacher teacher = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("ali"));
+            
+            Assert.IsTrue(kerem.teacher == teacher);
+        }
 
     }
 }

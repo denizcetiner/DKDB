@@ -17,7 +17,7 @@ namespace DKDB
         static List<PropertyInfo> customInfos = new List<PropertyInfo>();
         static List<PropertyInfo> orderedInfos = new List<PropertyInfo>(); //order in the file
         static List<PropertyInfo> OneToMany_One = new List<PropertyInfo>();
-        public static Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>> piContainer;
+        public static Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer;
 
         public static void initContainer()
         {
@@ -26,6 +26,8 @@ namespace DKDB
             {
                 primitiveInfos.Add(info);
             }
+            piContainer = new Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int>(
+                primitiveInfos, customInfos, orderedInfos, OneToMany_One, 12);
         }
 
         public MTMRec(int id_1, int id_2)

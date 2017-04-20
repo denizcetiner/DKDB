@@ -46,6 +46,28 @@ namespace DKDB
             return null;
         }
 
+        public void ReadAll(bool ReadRemoved=false)
+        {
+            foreach (object dbset in dbsets)
+            {
+                object[] parameters = { ReadRemoved };
+                dbset.GetType().GetMethod("ReadAllPlain").Invoke(dbset, parameters);
+            }
+            foreach (object dbset in dbsets)
+            {
+                object[] parameters = { ReadRemoved };
+                dbset.GetType().GetMethod("FillOTO").Invoke(dbset, parameters);
+            }
+            foreach (object dbset in dbsets)
+            {
+                dbset.GetType().GetMethod("FillOTM").Invoke(dbset, null);
+            }
+            foreach (object dbset in dbsets)
+            {
+                dbset.GetType().GetMethod("FillMTM").Invoke(dbset, null);
+            }
+        }
+
         /// <summary>
         /// Fills the otm list of the read records
         /// </summary>
@@ -174,14 +196,7 @@ namespace DKDB
         }
 
         #endregion
-
-        public void SetChanged()
-        {
-            foreach(var a in dbsets)
-            {
-                a.GetType().GetProperty("Changed").SetValue(a, true);
-            }
-        }
+        
 
         public int SaveChanges()
         {
@@ -197,12 +212,13 @@ namespace DKDB
             {
                 foreach (object o in dbsets)
                 {
-                    SetChanged();
                     MethodInfo method = o.GetType().GetMethod("SaveChanges");
                     result |= (bool)method.Invoke(o, parameter);
                 }
+                
             }
-            if(result) //if any changes happened, they may have triggered new changes.
+            this.removed = new Dictionary<Type, List<int>>();
+            if (result) //if any changes happened, they may have triggered new changes.
             {
                 
                 SaveChanges();

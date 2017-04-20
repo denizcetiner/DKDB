@@ -10,6 +10,7 @@ namespace UnitTestProject1
     {
         [DKDB.CustomAttr.MaxLengthAttr(MaxLength = 10)]
         public String name { get; set; }
-        public int school_id { get; set; }
+        [DKDB.CustomAttr.OneToMany(Target = "teacher")]
+        public List<Student> student { get; set; } = new List<Student>();
     }
 }
