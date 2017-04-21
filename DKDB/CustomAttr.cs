@@ -32,7 +32,7 @@ namespace DKDB
         {
             ManyToMany attr = (ManyToMany)info.GetCustomAttribute(typeof(ManyToMany));
             if (attr == null) return null;
-            return new Tuple<string, string>(attr.TableName, attr.Target);
+            return new Tuple<string, string>(attr.Target, attr.TableName);
         }
 
         public static bool Validator(object o)

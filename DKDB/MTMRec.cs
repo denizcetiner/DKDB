@@ -22,17 +22,26 @@ namespace DKDB
         public static void initContainer()
         {
             primitiveInfos = new List<PropertyInfo>();
+            orderedInfos = new List<PropertyInfo>();
             foreach(PropertyInfo info in typeof(MTMRec).GetProperties())
             {
                 primitiveInfos.Add(info);
+                orderedInfos.Add(info);
             }
             piContainer = new Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int>(
                 primitiveInfos, customInfos, orderedInfos, OneToMany_One, 12);
         }
 
+        public MTMRec()
+        {
+            initContainer();
+        }
+
         public MTMRec(int id_1, int id_2)
         {
             initContainer();
+            this.id_1 = id_1;
+            this.id_2 = id_2;
         }
 
     }

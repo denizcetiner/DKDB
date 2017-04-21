@@ -11,6 +11,7 @@ namespace UnitTestProject1
     {
         public DbSet<Teacher> teachers { get; set; }
         public DbSet<Student> students { get; set; }
+        public DbSet<Lesson> lessons { get; set; }
 
         public TestDbContext() : base(@"C:\UnitTest1")
         {

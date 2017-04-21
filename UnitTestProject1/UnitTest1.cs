@@ -240,9 +240,76 @@ namespace UnitTestProject1
             ctx.ReadAll();
             Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
             Teacher teacher = ctx.teachers.allRecords.FirstOrDefault(t => t.name.StartsWith("ali"));
-            
             Assert.IsTrue(kerem.teacher == teacher);
         }
 
+        [TestMethod]
+        public void TestMethod21()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Lesson lesson = new Lesson();
+            lesson.name = "algoritma";
+            Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
+            lesson.students.Add(kerem);
+            ctx.lessons.Add(lesson);
+            //ctx.students.Update(kerem);
+            ctx.SaveChanges();
+        }
+
+        [TestMethod]
+        public void TestMethod22()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Assert.IsTrue(ctx.lessons.allRecords[0].students.Count==1);
+        }
+        [TestMethod]
+        public void TestMethod23()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            Lesson algoritma = ctx.lessons.allRecords.FirstOrDefault(l => l.name.StartsWith("alg"));
+            
+            algoritma.students.Add(deniz);
+            ctx.lessons.Update(algoritma);
+            ctx.SaveChanges();
+        }
+
+        [TestMethod]
+        public void TestMethod24()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            Lesson algoritma = ctx.lessons.allRecords.FirstOrDefault(l => l.name.StartsWith("alg"));
+
+            Assert.IsTrue(deniz.lessons.Count == 1 && algoritma.students.Count == 2);
+        }
+
+        [TestMethod]
+        public void TestMethod25()
+        {
+            TestDbContext ctx = new TestDbContext();
+            ctx.ReadAll();
+            Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            Lesson mimari = new Lesson();
+            mimari.name = "mimari";
+            mimari.students.Add(deniz);
+            Lesson yapayzeka = new Lesson();
+            yapayzeka.name = "yapay zeka";
+            yapayzeka.students.Add(ctx.students.allRecords.FirstOrDefault(s => s.name == "Kerem O."));
+            ctx.lessons.Add(mimari);
+            ctx.lessons.Add(yapayzeka);
+            ctx.SaveChanges();
+            ctx.ReadAll();
+            deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
+            Assert.IsTrue(
+                deniz.lessons.Any(l => l.name == "mimari") 
+                && ctx.lessons.allRecords.FirstOrDefault(l => l.name == "mimari").students.Any(s => s.name == "Deniz C.")
+                && ctx.lessons.allRecords.FirstOrDefault(l=> l.name == "yapay zeka").students.Any(s => s.name == "Kerem O.")
+                );
+        }
     }
 }

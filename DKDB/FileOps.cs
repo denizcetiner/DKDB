@@ -20,7 +20,7 @@ namespace DKDB
         /// </summary>
         /// <param name="metaFile"></param>
         /// <returns></returns>
-        public static List<Tuple<String, String>> ReadMetaFilePropertiesAndNames(Stream metaFile)
+        public static List<Tuple<String, String>> ReadMetaPropsAndNames(Stream metaFile)
         {
             metaFile.Position = 0;
             List<Tuple<String, String>> propsAndNames = new List<Tuple<string, string>>();
@@ -186,7 +186,7 @@ namespace DKDB
                         WriteSingleProperty(bw, info, info.GetValue(record));
                     }
                 }
-                if (customInfos.Contains(info))
+                else if (customInfos.Contains(info))
                 {
                     int fk_id;
                     object child = info.GetValue(record);

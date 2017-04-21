@@ -67,46 +67,7 @@ namespace DKDB
                 dbset.GetType().GetMethod("FillMTM").Invoke(dbset, null);
             }
         }
-
-        /// <summary>
-        /// Fills the otm list of the read records
-        /// </summary>
-        public void CompleteAllOTMRequests()
-        {
-            bool result = true;
-            //referansları doldur.
-            foreach (object dbset in dbsets)
-            {
-                result &= (bool)dbset.GetType().GetMethod("CompleteOTMRequests").Invoke(dbset, null);
-            }
-            if (result)
-            {
-                CompleteAllOTMRequests(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
-                //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
-            }
-        }
-
-        /// <summary>
-        /// Fills the child objects of the read records. (one-to-one)
-        /// </summary>
-        public void FillOthers()
-        {
-            bool result = true;
-            //referansları doldur.
-            foreach (object dbset in dbsets)
-            {
-                object[] parameters = new object[1];
-                parameters[0] = false;
-                result &= (bool)dbset.GetType().GetMethod("FillOtherDbSetRecords").Invoke(dbset, parameters);
-            }
-            if (result)
-            {
-                FillOthers(); //bir tur doldurma işlemi, daha önce kontrol edilmiş dbset'lerde yeni doldurma isteklerini
-                //tetiklemiş olabilir. bu blok onu kontrol etmek için var.
-            }
-        }
-
-
+        
         #region constructor related
         
         public DbContext(String DatabaseFolder)
@@ -139,7 +100,7 @@ namespace DKDB
                 Stream mtmStream;
                 if (!File.Exists(filepath))
                 {
-                    mtmStream = File.Create(filepath + ".dat");
+                    mtmStream = File.Create(filepath);
                     mtmStream.Close();
                 }
             }
@@ -224,21 +185,27 @@ namespace DKDB
                 SaveChanges();
             }
             //Mtm kayıtlarını hallet.
-            foreach(KeyValuePair<String, List<Tuple<object,object>>> kp in MTMToWrite)
+            String s;
+            var kpList = MTMToWrite.ToList();
+            while(kpList.Count()>0)
             {
-                String filepath = Path.Combine(this.DatabaseFolder, kp.Key);
+                s = kpList[0].Key;
+                String filepath = Path.Combine(this.DatabaseFolder, kpList[0].Key);
                 Stream mtmStream;
                 mtmStream = File.OpenWrite(filepath + ".dat"); //Streami ata, aç
-                foreach (Tuple<object,object> mtmRecBase in kp.Value)
+                foreach (Tuple<object,object> mtmRecBase in kpList[0].Value)
                 {
                     MTMRec mtmRec = new MTMRec(
                         (int)mtmRecBase.Item1.GetType().GetProperty("id").GetValue(mtmRecBase.Item1),
                         (int)mtmRecBase.Item2.GetType().GetProperty("id").GetValue(mtmRecBase.Item2)
                         );
-                    FileOps.Add(mtmStream, new List<int>(), MTMRec.piContainer, mtmRec);
+                    int fk = FileOps.Add(mtmStream, new List<int>(), MTMRec.piContainer, mtmRec);
+                    mtmRec.GetType().GetProperty("id").SetValue(mtmRec, fk);
                     //Streami kapa, sil listeden.
                 }
                 mtmStream.Close();
+                kpList.RemoveAt(0);
+                MTMToWrite.Remove(s);
             }
             return 0;
         }
