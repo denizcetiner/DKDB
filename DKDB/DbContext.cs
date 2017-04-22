@@ -19,12 +19,10 @@ namespace DKDB
         public List<object> dbsets = new List<object>();
 
         public Dictionary<Type, List<int>> removed = new Dictionary<Type, List<int>>();
-
-        public Dictionary<String, Tuple<Type,Type>> MTMRelations
-            = new Dictionary<string, Tuple<Type,Type>>();
+        
         //public List<TransactionRecord> transactionRecords = new List<TransactionRecord>();
 
-        public Dictionary<String, List<Tuple<object, object>>> MTMToWrite = new Dictionary<string, List<Tuple<object, object>>>();
+        public Dictionary<String, List<Tuple<BaseClass, BaseClass>>> MTMToWrite = new Dictionary<string, List<Tuple<BaseClass, BaseClass>>>();
 
         
 
@@ -51,7 +49,7 @@ namespace DKDB
             foreach (object dbset in dbsets)
             {
                 object[] parameters = { ReadRemoved };
-                dbset.GetType().GetMethod("ReadAllPlain").Invoke(dbset, parameters);
+                dbset.GetType().GetMethod("ReadAll").Invoke(dbset, parameters);
             }
             foreach (object dbset in dbsets)
             {
@@ -94,7 +92,7 @@ namespace DKDB
         {
 
             //dosyaları yoksa oluştur
-            foreach(var a in MTMRelations)
+            foreach(KeyValuePair<string, Tuple<Type,Type>> a in BaseClass.AllMTMRelations)
             {
                 String filepath = Path.Combine(this.DatabaseFolder, a.Key) + ".dat";
                 Stream mtmStream;
@@ -193,14 +191,11 @@ namespace DKDB
                 String filepath = Path.Combine(this.DatabaseFolder, kpList[0].Key);
                 Stream mtmStream;
                 mtmStream = File.OpenWrite(filepath + ".dat"); //Streami ata, aç
-                foreach (Tuple<object,object> mtmRecBase in kpList[0].Value)
+                foreach (Tuple<BaseClass,BaseClass> mtmRecBase in kpList[0].Value)
                 {
-                    MTMRec mtmRec = new MTMRec(
-                        (int)mtmRecBase.Item1.GetType().GetProperty("id").GetValue(mtmRecBase.Item1),
-                        (int)mtmRecBase.Item2.GetType().GetProperty("id").GetValue(mtmRecBase.Item2)
-                        );
-                    int fk = FileOps.Add(mtmStream, new List<int>(), MTMRec.piContainer, mtmRec);
-                    mtmRec.GetType().GetProperty("id").SetValue(mtmRec, fk);
+                    MTMRec mtmRec = new MTMRec(mtmRecBase.Item1.id, mtmRecBase.Item2.id);
+                    int fk = FileOps.Add(mtmStream, new List<int>(), mtmRec);
+                    mtmRec.id = fk;
                     //Streami kapa, sil listeden.
                 }
                 mtmStream.Close();

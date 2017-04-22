@@ -10,7 +10,7 @@ namespace DKDB
 {
     public static class FileOps
     {
-        public static String filler = "/()=";
+        public static String delimiter = "/()=";
         
 
         #region reading operations
@@ -45,15 +45,12 @@ namespace DKDB
         /// <param name="customInfos">To check where the current info belongs</param>
         /// <param name="info">İnfo to be read</param>
         /// <returns>Returns the read value in object form</returns>
-        public static object ReadSingleProperty(BinaryReader br, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, PropertyInfo info)
+        public static object ReadSingleProperty(BinaryReader br, Type ty, PropertyInfo info)
         {
-            List<PropertyInfo> primitiveInfos = piContainer.Item1;
-            List<PropertyInfo> customInfos = piContainer.Item2;
-            List<PropertyInfo> orderedInfos = piContainer.Item3;
-            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
-
+            BaseClass trash = (BaseClass)Activator.CreateInstance(ty);
+            
             Type t = info.PropertyType;
-            if (customInfos.Contains(info))
+            if (trash.OTORelInfos().Contains(info))
             {
                 return br.ReadInt32();
             }
@@ -63,7 +60,7 @@ namespace DKDB
                     = (CustomAttr.MaxLengthAttr)
                     CustomAttr.GetAttribute(typeof(CustomAttr.MaxLengthAttr), info);
 
-                return RemoveFiller(new string(br.ReadChars(lengthAttr.MaxLength + filler.Length)), filler);
+                return RemoveFiller(new string(br.ReadChars(lengthAttr.MaxLength + delimiter.Length)), delimiter);
             }
             else if (t == typeof(bool))
             {
@@ -108,36 +105,31 @@ namespace DKDB
         /// <param name="customInfos"></param>
         /// <param name="infos">Ordered info list to be read from the file.</param>
         /// <returns>Returns the record, and list of the childs to be read if exists.</returns>
-        public static Tuple<object, Dictionary<PropertyInfo, int>> ReadSingleRecord(Stream mainFile, int id, Type t,
-            Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer)
+        public static Tuple<BaseClass, Dictionary<PropertyInfo, int>> ReadSingleRecord(Stream mainFile, int id, Type t)
         {
-            List<PropertyInfo> primitiveInfos = piContainer.Item1;
-            List<PropertyInfo> customInfos = piContainer.Item2;
-            List<PropertyInfo> orderedInfos = piContainer.Item3;
-            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
-            int sizeOfRow = piContainer.Item5;
+            BaseClass trash = (BaseClass)Activator.CreateInstance(t);
 
             Dictionary<PropertyInfo, int> childObjects = new Dictionary<PropertyInfo, int>();
 
-            object record = Activator.CreateInstance(t);
+            BaseClass record = (BaseClass)Activator.CreateInstance(t);
             BinaryReader br = new BinaryReader(mainFile);
 
-            br.BaseStream.Position = sizeOfRow * (id - 1);
+            br.BaseStream.Position = trash.RowSize() * (id - 1);
 
 
-            foreach (PropertyInfo info in orderedInfos)
+            foreach (PropertyInfo info in trash.OrderedInfos())
             {
-                if (customInfos.Contains(info))
+                if (trash.OTORelInfos().Contains(info))
                 {
-                    childObjects.Add(info, (int)ReadSingleProperty(br, piContainer, info));
+                    childObjects.Add(info, (int)ReadSingleProperty(br, t, info));
                 }
                 else
                 {
-                    info.SetValue(record, ReadSingleProperty(br, piContainer, info));
+                    info.SetValue(record, ReadSingleProperty(br, t, info));
                 }
             }
-            Tuple<object, Dictionary<PropertyInfo, int>> fillingLog
-                = new Tuple<object, Dictionary<PropertyInfo, int>>(record, childObjects);
+            Tuple<BaseClass, Dictionary<PropertyInfo, int>> fillingLog
+                = new Tuple<BaseClass, Dictionary<PropertyInfo, int>>(record, childObjects);
             //^object=record, Dictionary=property,fkid
             return fillingLog;
         }
@@ -155,27 +147,22 @@ namespace DKDB
         /// <param name="infos">Properties that will be stored in database. (To exclude notmapped properties)</param>
         /// <param name="record">Record to be inserted</param>
         /// <returns>Returns the id of last inserted record</returns>
-        public static int Add(Stream mainFile, List<int> removedIndexes, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, object record)
+        public static int Add(Stream mainFile, List<int> removedIndexes, BaseClass record)
         {
-            List<PropertyInfo> primitiveInfos = piContainer.Item1;
-            List<PropertyInfo> customInfos = piContainer.Item2;
-            List<PropertyInfo> orderedInfos = piContainer.Item3;
-            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
 
             int indexToBeInserted = -1;
             if (removedIndexes.Count() > 0)
             {
                 indexToBeInserted = removedIndexes[0];
-                Overwrite(mainFile, piContainer, record);
+                Overwrite(mainFile, record);
                 return indexToBeInserted;
             }
-            int sizeOfRow = piContainer.Item5; //byte size of a row
-            mainFile.Position = (mainFile.Length / sizeOfRow) * ((indexToBeInserted == -1) ? sizeOfRow : indexToBeInserted); //
-            indexToBeInserted = Convert.ToInt32(mainFile.Position / sizeOfRow) + 1; //idler 1den başlasın
+            mainFile.Position = (mainFile.Length / record.RowSize()) * ((indexToBeInserted == -1) ? record.RowSize() : indexToBeInserted); //
+            indexToBeInserted = Convert.ToInt32(mainFile.Position / record.RowSize()) + 1; //idler 1den başlasın
             BinaryWriter bw = new BinaryWriter(mainFile);
-            foreach (PropertyInfo info in orderedInfos)
+            foreach (PropertyInfo info in record.OrderedInfos())
             {
-                if (primitiveInfos.Contains(info))
+                if (record.PrimitiveInfos().Contains(info))
                 {
                     if (info.Name == "id")
                     {
@@ -186,20 +173,19 @@ namespace DKDB
                         WriteSingleProperty(bw, info, info.GetValue(record));
                     }
                 }
-                else if (customInfos.Contains(info))
+                else if (record.OTORelInfos().Contains(info))
                 {
-                    int fk_id;
-                    object child = info.GetValue(record);
+                    BaseClass child = (BaseClass)info.GetValue(record);
                     if (child == null)
                     {
-                        fk_id = -1;
+                        bw.Write(-1);
                     }
                     else
                     {
-                        fk_id = (int)info.GetValue(record).GetType().GetProperty("id").GetValue(info.GetValue(record));
+                        bw.Write(child.id);
                     }
 
-                    bw.Write(fk_id);
+                    
                 }
                 //one to many ise burada iş yok, dbset'te request yapılacak.
             }
@@ -221,7 +207,7 @@ namespace DKDB
             Type t = info.PropertyType;
             if (t == typeof(String))
             {
-                bw.Write(FillString((String)value, filler, CustomAttr.GetLength(info)).ToCharArray());
+                bw.Write(FillString((String)value, delimiter, CustomAttr.GetLength(info)).ToCharArray());
             }
             else if (t == typeof(bool))
             {
@@ -247,18 +233,16 @@ namespace DKDB
             //else if custom info
         }
 
-        public static void MakeReferenceNull(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>,int> piContainer, PropertyInfo info, Dictionary<int,List<int>> toChange)
+        public static void MakeReferenceNull(Stream mainFile, PropertyInfo info, Type T, Dictionary<int,List<int>> toChange)
         {
             //ToChange:
             //key = silinecek id
             //list int = key'e eskiden referans eden kayıtlar
-            List<PropertyInfo> primitiveInfos = piContainer.Item1;
-            List<PropertyInfo> customInfos = piContainer.Item2;
-            List<PropertyInfo> orderedInfos = piContainer.Item3;
-            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
+
+            BaseClass trash = (BaseClass)Activator.CreateInstance(T);
 
             int total = 0;
-            foreach(PropertyInfo orderedInfo in orderedInfos) //sütun kaçıncı pozisyonda bul
+            foreach(PropertyInfo orderedInfo in trash.OrderedInfos()) //sütun kaçıncı pozisyonda bul
             {
                 if(orderedInfo.Name.Equals(info.Name)) //yazacağımız sütunu bulduk.
                 {
@@ -266,7 +250,7 @@ namespace DKDB
                 }
                 else
                 {
-                    if (customInfos.Contains(orderedInfo))
+                    if (trash.OTORelInfos().Contains(orderedInfo))
                     {
                         total += sizeof(int); //foreign key
                     }
@@ -277,7 +261,7 @@ namespace DKDB
                     }
                     else if (orderedInfo.PropertyType == typeof(String))
                     {
-                        total += CustomAttr.GetLength(orderedInfo) + filler.Length;
+                        total += CustomAttr.GetLength(orderedInfo) + delimiter.Length;
                     }
                     else
                     {
@@ -286,12 +270,11 @@ namespace DKDB
                 }
             }
             BinaryWriter bw = new BinaryWriter(mainFile);
-            int rowSize = piContainer.Item5;
             foreach(KeyValuePair<int, List<int>> kp in toChange)
             {
                 foreach(int id in kp.Value)
                 {
-                    bw.BaseStream.Position = (id - 1) * rowSize + total;
+                    bw.BaseStream.Position = (id - 1) * trash.RowSize() + total;
                     bw.Write(-1);
                 }
             }
@@ -305,20 +288,15 @@ namespace DKDB
         /// <param name="primitiveInfos">To compare.</param>
         /// <param name="orderedInfos">The infos in the order of being written to the file.</param>
         /// <param name="record">Record to be overwritten.</param>
-        public static void Overwrite(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, object record)
+        public static void Overwrite(Stream mainFile, BaseClass record)
         {
-            List<PropertyInfo> primitiveInfos = piContainer.Item1;
-            List<PropertyInfo> customInfos = piContainer.Item2;
-            List<PropertyInfo> orderedInfos = piContainer.Item3;
-            List<PropertyInfo> otmInfos = piContainer.Item4; //one to many
 
-            int indexToBeInserted = (int)record.GetType().GetProperty("id").GetValue(record);
-            int sizeOfRow = piContainer.Item5;
-            mainFile.Position = sizeOfRow * (indexToBeInserted-1); //gerekirse düzelt
+            int indexToBeInserted = record.id;
+            mainFile.Position = record.RowSize() * (indexToBeInserted-1); //gerekirse düzelt
             BinaryWriter bw = new BinaryWriter(mainFile);
-            foreach (PropertyInfo info in orderedInfos)
+            foreach (PropertyInfo info in record.OrderedInfos())
             {
-                if (primitiveInfos.Contains(info))
+                if (record.PrimitiveInfos().Contains(info))
                 {
                     WriteSingleProperty(bw, info, info.GetValue(record));
                 }
@@ -328,17 +306,16 @@ namespace DKDB
                 }
                 else
                 {
-                    object child = info.GetValue(record);
-                    int id;
+                    BaseClass child = (BaseClass)info.GetValue(record);
+                    
                     if (child == null)
                     {
-                        id = -1;
+                        bw.Write(-1);
                     }
                     else
                     {
-                        id = (int)child.GetType().GetProperty("id").GetValue(info.GetValue(record));
+                        bw.Write(child.id);
                     }
-                        bw.Write(id);
                 }
             }
         }
@@ -352,10 +329,10 @@ namespace DKDB
         /// <param name="orderedInfos"></param>
         /// <param name="metaFile">MetaFile stream of the dbset. To update the removed indexes. (Burada mı yapılacak? düşün.)</param>
         /// <param name="record"></param>
-        public static void Remove(Stream mainFile, Tuple<List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, List<PropertyInfo>, int> piContainer, Stream metaFile, object record)
+        public static void Remove(Stream mainFile, Stream metaFile, BaseClass record)
         {
             record.GetType().GetProperty("removed").SetValue(record, true);
-            Overwrite(mainFile, piContainer, record);
+            Overwrite(mainFile, record);
             //removed indexes ile ilgili iş nerede yapılacak?
         }
 
@@ -398,7 +375,7 @@ namespace DKDB
                 }
                 else if (info.PropertyType == typeof(String))
                 {
-                    total += CustomAttr.GetLength(info) + filler.Length;
+                    total += CustomAttr.GetLength(info) + delimiter.Length;
                 }
                 else if(info.PropertyType.IsGenericType)
                 {

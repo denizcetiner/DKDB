@@ -138,6 +138,7 @@ namespace UnitTestProject1
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             Assert.IsTrue(deniz.teacher.name.Equals("Bora U."));
         }
+
         [TestMethod]
         public void TestMethod12()
         {
@@ -146,6 +147,7 @@ namespace UnitTestProject1
             Student deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             Assert.IsTrue(deniz.teacher.name.Equals("Bora U."));
         }
+
         [TestMethod]
         public void TestMethod13()
         {
@@ -230,6 +232,7 @@ namespace UnitTestProject1
             teacher.student.Add(kerem);
             ctx.teachers.Update(teacher);
             ctx.SaveChanges();
+            ctx.ReadAll();
             Assert.IsTrue(kerem.teacher == teacher);
         }
 
@@ -251,7 +254,7 @@ namespace UnitTestProject1
             Lesson lesson = new Lesson();
             lesson.name = "algoritma";
             Student kerem = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Kerem"));
-            lesson.students.Add(kerem);
+            lesson.students.Add(kerem); //tek taraflı ekle. kerem'in lesson listesine ekleme. kural olsun bu.
             ctx.lessons.Add(lesson);
             //ctx.students.Update(kerem);
             ctx.SaveChanges();
@@ -264,6 +267,7 @@ namespace UnitTestProject1
             ctx.ReadAll();
             Assert.IsTrue(ctx.lessons.allRecords[0].students.Count==1);
         }
+
         [TestMethod]
         public void TestMethod23()
         {
@@ -306,9 +310,9 @@ namespace UnitTestProject1
             ctx.ReadAll();
             deniz = ctx.students.allRecords.FirstOrDefault(s => s.name.StartsWith("Deniz"));
             Assert.IsTrue(
-                deniz.lessons.Any(l => l.name == "mimari") 
+                deniz.lessons.Any(l => l.name == "mimari")
                 && ctx.lessons.allRecords.FirstOrDefault(l => l.name == "mimari").students.Any(s => s.name == "Deniz C.")
-                && ctx.lessons.allRecords.FirstOrDefault(l=> l.name == "yapay zeka").students.Any(s => s.name == "Kerem O.")
+                && ctx.lessons.allRecords.FirstOrDefault(l => l.name == "yapay zeka").students.Any(s => s.name == "Kerem O.")
                 );
         }
     }
