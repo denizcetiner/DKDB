@@ -91,7 +91,7 @@ namespace DKDB
                                 Type targetType = info.PropertyType.GetGenericArguments()[0];
                                 PropertyInfo targetInfo = info.PropertyType.GetGenericArguments()[0].GetProperty(Target_Table.Item1);
 
-                                if (!AllMTMRelations.Any(e => e.Key == Target_Table.Item2))
+                                if (!AllMTMRelations.Any(e => e.Key == Target_Table.Item2)) //tablo adına göre kontrol ediyor
                                 {
                                     AllMTMRelations.Add(
                                     Target_Table.Item2, new Tuple<Type, Type>(this.GetType(), targetType)
@@ -109,11 +109,7 @@ namespace DKDB
                     }
                 }
                 RowSizes.Add(name, FileOps.CalculateRowByteSize(OrderedInfos(), OTORelInfos(), PrimitiveInfos()));
-                Console.WriteLine();
             }
-
         }
-
-        //piContainer'ı buraya taşı. statik olsun?
     }
 }

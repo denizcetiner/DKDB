@@ -14,7 +14,7 @@ namespace DKDB
         public bool Changed = false;
 
         public String DatabaseFolder;
-        public String EndingChars = "/()=";
+        public String delimiter = "/()=";
         public List<Type> dbsetTypes = new List<Type>();
         public List<object> dbsets = new List<object>();
 
@@ -44,6 +44,10 @@ namespace DKDB
             return null;
         }
 
+        /// <summary>
+        /// Brings the whole database to memory.
+        /// </summary>
+        /// <param name="ReadRemoved"></param>
         public void ReadAll(bool ReadRemoved=false)
         {
             foreach (object dbset in dbsets)
@@ -73,9 +77,9 @@ namespace DKDB
             Directory.CreateDirectory(DatabaseFolder);
             this.DatabaseFolder = DatabaseFolder;
             initSetTypes(); //Creates the list of the DbSet Generic Parameter types
-            initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
+            initDbSetList(); //Creates instances of all DbSets and assigns to corresponding properties
             InitDbSetProps(); //Assigns this instance of DbContext to the DbSets, for DbSets to be able to send messages to DbContext.
-            initMTMTables(); //DbContext will be managing the MTM operations. This will create the MTM tables.
+            initMTMTables(); //DbContext will be managing the MTM write operations. This will create the MTM tables.
         }
 
         public DbContext ()
@@ -83,9 +87,9 @@ namespace DKDB
             DatabaseFolder = @"C:\Deneme";
             Directory.CreateDirectory(DatabaseFolder);
             initSetTypes(); //Creates the list of the DbSet Generic Parameter types
-            initDbSetList(); //Creates instances of all DbSets and assigns to proper properties
-            InitDbSetProps(); //
-            initMTMTables();
+            initDbSetList(); //Creates instances of all DbSets and assigns to corresponding properties
+            InitDbSetProps(); //Assigns this instance of DbContext to the DbSets, for DbSets to be able to send messages to DbContext.
+            initMTMTables(); //DbContext will be managing the MTM write operations. This will create the MTM tables.
         }
         
         public void initMTMTables()

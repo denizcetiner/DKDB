@@ -348,8 +348,7 @@ namespace DKDB
             bw.Write("Removed indexes:");
         }
 
-
-
+        
         public static void UpdateRemovedIndexes(Stream metaFile, List<int> removedIndexes)
         {
 

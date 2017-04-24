@@ -7,6 +7,9 @@ using System.Threading.Tasks;
 
 namespace DKDB
 {
+    /// <summary>
+    /// Model of the middle table records of Many-To-Many relations.
+    /// </summary>
     public class MTMRec : BaseClass
     {
         public int id_1 { get; set; }

@@ -196,6 +196,11 @@ namespace DKDB
             recordsToRemove.Add(record);
         }
         
+        /// <summary>
+        /// Checks inside the given record for OTO-OTM-MTM relations and processes them by sending to the corresponding dbset methods.
+        /// </summary>
+        /// <param name="record"></param>
+        /// <param name="mode"></param>
         public void CheckInside(BaseClass record, String mode)
         {
             foreach (PropertyInfo info in record.GetType().GetProperties())
@@ -245,7 +250,7 @@ namespace DKDB
         }
 
         /// <summary>
-        /// Adds given record to the buffer.
+        /// Adds given record to add-queue, to be added in SaveChanges operation. Also checks for inner properties' relationships.
         /// </summary>
         /// <param name="record">Record to add.</param>
         public void Add(T record)
@@ -260,7 +265,7 @@ namespace DKDB
         }
 
         /// <summary>
-        /// Given record will be updated.
+        /// Adds given record to update-queue, to be updated in SaveChanges operation. Also checks for inner properties' relationships.
         /// </summary>
         /// <param name="record">Record to be analyzed and updated.</param>
         public void Update(T record)
@@ -275,7 +280,7 @@ namespace DKDB
 
 
         /// <summary>
-        /// Adds a record that is a child of another record.
+        /// Adds the record to addaschild-queue to be added in SaveChanges operation. Record will be given an id, and the parent will be updated with the id as foreign key in data tables.
         /// </summary>
         /// <param name="owner">Owner of the record.</param>
         /// <param name="record">Record.</param>
@@ -337,7 +342,7 @@ namespace DKDB
         #endregion
         
         /// <summary>
-        /// Completes some of the changes in the dbset chosen by the command.
+        /// Completes changes in the dbset chosen by the command.
         /// </summary>
         /// <param name="command">AddDirectly, AddChilds, Update, Remove</param>
         public bool SaveChanges(char[] com)
@@ -483,8 +488,8 @@ namespace DKDB
             {
                 Tuple<BaseClass, Dictionary<PropertyInfo, int>> fillingLog;
                 fillingLog = FileOps.ReadSingleRecord(mainFile, id+1, typeof(T));
-                object rec = fillingLog.Item1;
-                if (ReadRemoved || !(bool)rec.GetType().GetProperty("removed").GetValue(rec))
+                BaseClass rec = fillingLog.Item1;
+                if (ReadRemoved || !rec.removed)
                 {
                     allRecords.Add((T)rec);
                     foreach (KeyValuePair<PropertyInfo, int> kp in fillingLog.Item2) //OTOReq'ler
